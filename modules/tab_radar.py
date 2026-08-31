@@ -50,9 +50,9 @@ OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
 ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
-SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 REPORTS_DIR = os.path.join(WORKSPACE_ROOT, "reports")
 CACHE_DIR = os.path.join(WORKSPACE_ROOT, "cache")
+SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 RADAR_CACHE_FILE = os.path.join(CACHE_DIR, "last_radar_telemetry.json")
 
 
@@ -180,7 +180,7 @@ def get_secret(keys: List[str]) -> Optional[str]:
 # Secretos Multi-Cuenta
 GOOGLE_C1_KEY = get_secret(["C1_GOOGLE_AISTUDIO", "GOOGLE_AI_STUDIO_API_KEY", "GOOGLE_API_KEY"])
 GOOGLE_C2_KEY = get_secret(["C2_GOOGLE_AISTUDIO"])
-OPENROUTER_C7_KEY = get_secret(["C7_OPENROUTER_OPENCODE_HP15", "OPENROUTER_API_KEY", "C7_OPENROUTER", "C1_OPENROUTER"])
+OPENROUTER_C7_KEY = get_secret(["C7_OPENROUTER", "OPENROUTER_API_KEY", "C1_OPENROUTER"])
 OPENROUTER_C1_KEY = get_secret(["C1_OPENROUTER"])
 NVIDIA_C7_KEY = get_secret(["C7_NVIDIA", "NVIDIA_API_KEY"])
 NVIDIA_C1_KEY = get_secret(["C1_NVIDIA"])
@@ -334,8 +334,13 @@ def probe_single_endpoint(item: Dict[str, Any], probe_cfg: Dict[str, Any], cance
     timeout = int(probe_cfg.get("timeout", 7))
     temp = float(probe_cfg.get("temperature", 0.1))
 
+    # Limpiar prefijos de cuenta internos (c1/, c2/, c7/) antes de enviar a la API
+    model_id = item["id"]
+    if model_id.startswith(("c1/", "c2/", "c7/")):
+        model_id = model_id.split("/", 1)[-1]
+
     payload = {
-        "model": item["id"],
+        "model": model_id,
         "messages": [{"role": "user", "content": test_prompt}],
         "max_tokens": max_tok,
         "temperature": temp
@@ -682,6 +687,7 @@ class CatalogDiscoveryWorker(CancellableThread):
                                 "account_tag": "C7",
                                 "provider": "openrouter",
                                 "base_url": "https://openrouter.ai/api/v1",
+                                "key": self.openrouter_key,
                                 "context": ctx,
                                 "badge": badge,
                                 "category": cat,
@@ -2273,6 +2279,34 @@ class TabRadar(QWidget):
             self.log(f"📋 Configuración de {len(deepseek_models)} modelos DeepSeek copiada al portapapeles.")
             QMessageBox.information(self, "DeepSeek Copiado", f"✅ {len(deepseek_models)} modelos DeepSeek copiados al portapapeles.")
 
+    # ── Mapeo de proveedor+cuenta → configuración de agente ─────────────────
+    PROVIDER_ENV_MAP = {
+        ("google", "C1"): {"env_key": "C1_GOOGLE_AISTUDIO", "npm": "@ai-sdk/google", "label": "Google AI Studio Pro [C1]"},
+        ("google", "C2"): {"env_key": "C2_GOOGLE_AISTUDIO", "npm": "@ai-sdk/google", "label": "Google AI Studio [C2]"},
+        ("openrouter", "C7"): {"env_key": "C7_OPENROUTER", "npm": "@ai-sdk/openai", "label": "OpenRouter Free [C7]", "base_url": "https://openrouter.ai/api/v1"},
+        ("openrouter", "C1"): {"env_key": "C1_OPENROUTER", "npm": "@ai-sdk/openai", "label": "OpenRouter [C1]", "base_url": "https://openrouter.ai/api/v1"},
+        ("nvidia", "C7"): {"env_key": "C7_NVIDIA", "npm": "@ai-sdk/openai", "label": "NVIDIA NIM [C7]", "base_url": "https://integrate.api.nvidia.com/v1"},
+        ("nvidia", "C1"): {"env_key": "C1_NVIDIA", "npm": "@ai-sdk/openai", "label": "NVIDIA NIM [C1]", "base_url": "https://integrate.api.nvidia.com/v1"},
+        ("nvidia", "C2"): {"env_key": "C2_NVIDIA", "npm": "@ai-sdk/openai", "label": "NVIDIA NIM [C2]", "base_url": "https://integrate.api.nvidia.com/v1"},
+        ("mistral", "C1"): {"env_key": "C1_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI Pro [C1]"},
+        ("mistral", "C2"): {"env_key": "C2_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI [C2]"},
+        ("deepseek", "Direct"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [Paid]", "base_url": "https://api.deepseek.com/v1"},
+        ("deepseek", "C1"): {"env_key": "C1_DEEPSEEK", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C1]", "base_url": "https://api.deepseek.com/v1"},
+        ("deepseek", "C7"): {"env_key": "C7_DEEPSEEK", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C7]", "base_url": "https://api.deepseek.com/v1"},
+        ("groq", "C1"): {"env_key": "C1_GROQ", "npm": "@ai-sdk/openai", "label": "Groq LPU [C1]", "base_url": "https://api.groq.com/openai/v1"},
+        ("zai", "C1"): {"env_key": "C1_Z_AI", "npm": "@ai-sdk/openai", "label": "Z.AI GLM [C1]", "base_url": "https://api.z.ai/v1"},
+    }
+
+    def _build_provider_groups(self) -> Dict[str, Dict]:
+        """Agrupa los modelos de la tabla activa por (provider, account_tag) para generar configs dinámicas."""
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for m in self.table_models_map.values():
+            prov = m.get("provider", "unknown")
+            tag = m.get("account_tag", "C1")
+            groups[(prov, tag)].append(m)
+        return dict(groups)
+
     def sync_to_opencode(self, silent: bool = False):
         try:
             self._backup_file(OPENCODE_CONFIG)
@@ -2285,92 +2319,53 @@ class TabRadar(QWidget):
                 except Exception:
                     pass
 
+            # Construir providers dinámicamente desde la tabla activa
+            groups = self._build_provider_groups()
+            providers = {}
+            for (prov, tag), models in sorted(groups.items()):
+                cfg = self.PROVIDER_ENV_MAP.get((prov, tag))
+                if not cfg:
+                    continue
+                prov_key = prov if tag in ("C1", "Direct") else f"{prov}_{tag.lower()}"
+                options = {"apiKey": "{env:" + cfg["env_key"] + "}"}
+                if "base_url" in cfg:
+                    options["baseURL"] = cfg["base_url"]
+                model_entries = {}
+                for m in models:
+                    m_id = m["id"]
+                    # Para modelos con prefijo de cuenta (c1/, c2/, c7/), usar el ID real
+                    clean_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/")) else m_id
+                    model_entries[clean_id] = {"name": m.get("name", clean_id)}
+                providers[prov_key] = {
+                    "npm": cfg["npm"],
+                    "name": cfg["label"],
+                    "options": options,
+                    "models": model_entries
+                }
+
+            # Seleccionar modelo principal (preferir gemini-3.7-flash si existe)
+            main_model = "google/gemini-3.7-flash"
+            small_model = "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+            if "gemini-3.7-flash" in self.table_models_map:
+                main_model = "google/gemini-3.7-flash"
+            elif self.table_models_map:
+                main_model = next(iter(self.table_models_map))
+
             opencode_cfg = {
                 "$schema": "https://opencode.ai/config.json",
-                "model": "google/gemini-3.7-flash",
-                "small_model": "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-                "provider": {
-                    "google": {
-                        "npm": "@ai-sdk/google",
-                        "name": "Google AI Studio Pro [C1]",
-                        "options": {"apiKey": "{env:C1_GOOGLE_AISTUDIO}"},
-                        "models": {
-                            "gemini-3.7-flash": {"name": "[C1] Gemini 3.7 (Reasoning)"},
-                            "gemini-3.6-flash": {"name": "[C1] Gemini 3.6 (Fast)"},
-                            "gemini-3.5-flash": {"name": "[C1] Gemini 3.5 (Multi)"},
-                            "gemma-4-31b-it": {"name": "[C1] Gemma 4 31B (Agent)"}
-                        }
-                    },
-                    "google_c2": {
-                        "npm": "@ai-sdk/google",
-                        "name": "Google AI Studio [C2]",
-                        "options": {"apiKey": "{env:C2_GOOGLE_AISTUDIO}"},
-                        "models": {
-                            "gemini-3.7-flash": {"name": "[C2] Gemini 3.7 (Reasoning)"}
-                        }
-                    },
-                    "mistral": {
-                        "npm": "@ai-sdk/mistral",
-                        "name": "Mistral AI Pro [C1]",
-                        "options": {"apiKey": "{env:C1_MISTRAL}"},
-                        "models": {"codestral-latest": {"name": "[C1] Codestral (Code)"}}
-                    },
-                    "openrouter": {
-                        "npm": "@ai-sdk/openai",
-                        "name": "OpenRouter Free [C7]",
-                        "options": {"baseURL": "https://openrouter.ai/api/v1", "apiKey": "{env:C7_OPENROUTER_OPENCODE_HP15}"},
-                        "models": {
-                            "openrouter/auto": {"name": "[C7] OpenRouter Auto"},
-                            "openrouter/free": {"name": "[C7] OpenRouter Free"},
-                            "meta-llama/llama-3.3-70b-instruct:free": {"name": "[C7] Llama 3.3 70B (Free)"},
-                            "qwen/qwen-2.5-coder-32b-instruct:free": {"name": "[C7] Qwen 2.5 Coder (Free)"},
-                            "deepseek/deepseek-r1:free": {"name": "[C7] DeepSeek R1 (Free)"},
-                            "google/gemini-2.0-flash-exp:free": {"name": "[C7] Gemini 2.0 Flash (Free)"},
-                            "minimax/minimax-m3:free": {"name": "[C7] MiniMax M3 (Frontier)"},
-                            "nvidia/nemotron-3-super-120b-a12b:free": {"name": "[C7] Nemotron 3 Super"},
-                            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": "[C7] Nemotron 3 Nano"},
-                            "z-ai/glm-5.2:free": {"name": "[C7] GLM 5.2 (Frontier)"},
-                            "poolside/laguna-s-2.1:free": {"name": "[C7] Laguna S 2.1 (Code)"}
-                        }
-                    },
-                    "nvidia": {
-                        "npm": "@ai-sdk/openai",
-                        "name": "NVIDIA NIM [C7]",
-                        "options": {"baseURL": "https://integrate.api.nvidia.com/v1", "apiKey": "{env:C7_NVIDIA}"},
-                        "models": {
-                            "deepseek-ai/deepseek-v4-flash-0731": {"name": "[C1] DeepSeek V4 (NIM)"},
-                            "moonshotai/kimi-k3": {"name": "[C2] Kimi K3 (NIM)"},
-                            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {"name": "[C7] Nemotron 3 Nano (NIM)"}
-                        }
-                    },
-                    "deepseek": {
-                        "npm": "@ai-sdk/openai",
-                        "name": "DeepSeek Direct [Paid]",
-                        "options": {"baseURL": "https://api.deepseek.com/v1", "apiKey": "{env:DEEPSEEK_API_KEY}"},
-                        "models": {
-                            "deepseek-chat": {"name": "[Direct] DeepSeek Chat V3"},
-                            "deepseek-reasoner": {"name": "[Direct] DeepSeek Reasoner R1"}
-                        }
-                    },
-                    "deepseek_c1": {
-                        "npm": "@ai-sdk/openai",
-                        "name": "DeepSeek Direct [C1]",
-                        "options": {"baseURL": "https://api.deepseek.com/v1", "apiKey": "{env:C1_DEEPSEEK}"},
-                        "models": {
-                            "deepseek-chat": {"name": "[C1] DeepSeek Chat V3"},
-                            "deepseek-reasoner": {"name": "[C1] DeepSeek Reasoner R1"}
-                        }
-                    }
-                }
+                "model": main_model,
+                "small_model": small_model,
+                "provider": providers
             }
             if existing_mcp:
                 opencode_cfg["mcp"] = existing_mcp
 
             os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
             atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
-            self.log(f"✅ OpenCode sincronizado: {OPENCODE_CONFIG}")
+            model_count = sum(len(p.get("models", {})) for p in providers.values())
+            self.log(f"✅ OpenCode sincronizado: {len(providers)} proveedores, {model_count} modelos → {OPENCODE_CONFIG}")
             if not silent:
-                QMessageBox.information(self, "OpenCode Sincronizado", f"✅ Flota multi-cuenta exportada exitosamente a:\n{OPENCODE_CONFIG}")
+                QMessageBox.information(self, "OpenCode Sincronizado", f"✅ Flota dinámica exportada a OpenCode:\n\n• {len(providers)} proveedores\n• {model_count} modelos\n• {OPENCODE_CONFIG}")
         except Exception as e:
             self.log(f"❌ Error sincronizando OpenCode: {e}")
             if not silent:
@@ -2379,82 +2374,49 @@ class TabRadar(QWidget):
     def sync_to_hermes(self, silent: bool = False):
         try:
             self._backup_file(HERMES_CONFIG)
-            hermes_yaml = """model:
+
+            # Construir config YAML dinámicamente desde la tabla activa
+            groups = self._build_provider_groups()
+            providers_yaml = ""
+            hermes_cache = {}
+
+            for (prov, tag), models in sorted(groups.items()):
+                cfg = self.PROVIDER_ENV_MAP.get((prov, tag))
+                if not cfg:
+                    continue
+                prov_key = prov if tag in ("C1", "Direct") else f"{prov}_{tag.lower()}"
+                base_url = cfg.get("base_url", models[0].get("base_url", ""))
+                model_ids = []
+                for m in models:
+                    m_id = m["id"]
+                    clean_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/")) else m_id
+                    model_ids.append(clean_id)
+
+                models_yaml = "\n".join(f"      - {mid}" for mid in model_ids)
+                providers_yaml += f"""  {prov_key}:
+    name: {cfg['label']}
+    env_key: {cfg['env_key']}
+    base_url: {base_url}
+    api: openai-completions
+    models:
+{models_yaml}
+"""
+                hermes_cache[prov_key] = {
+                    "fp": f"{prov_key}-dynamic-v4",
+                    "at": time.time(),
+                    "models": model_ids
+                }
+
+            hermes_yaml = f"""model:
   default: gemini-3.7-flash
   provider: google
   base_url: https://generativelanguage.googleapis.com/v1beta/openai/
 providers:
-  google:
-    name: Google AI Studio Pro [C1]
-    env_key: C1_GOOGLE_AISTUDIO
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    api: openai-completions
-    models:
-      - gemini-3.7-flash
-      - gemini-3.6-flash
-      - gemini-3.5-flash
-      - gemma-4-31b-it
-  google_c2:
-    name: Google AI Studio [C2]
-    env_key: C2_GOOGLE_AISTUDIO
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    api: openai-completions
-    models:
-      - gemini-3.7-flash
-  openrouter:
-    name: OpenRouter Free [C7]
-    env_key: C7_OPENROUTER_OPENCODE_HP15
-    base_url: https://openrouter.ai/api/v1
-    api: openai-completions
-    models:
-      - openrouter/auto
-      - openrouter/free
-      - meta-llama/llama-3.3-70b-instruct:free
-      - qwen/qwen-2.5-coder-32b-instruct:free
-      - deepseek/deepseek-r1:free
-      - google/gemini-2.0-flash-exp:free
-      - minimax/minimax-m3:free
-      - nvidia/nemotron-3-super-120b-a12b:free
-      - nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
-      - z-ai/glm-5.2:free
-      - poolside/laguna-s-2.1:free
-  nvidia:
-    name: NVIDIA NIM [C7]
-    env_key: C7_NVIDIA
-    base_url: https://integrate.api.nvidia.com/v1
-    api: openai-completions
-    models:
-      - deepseek-ai/deepseek-v4-flash-0731
-      - moonshotai/kimi-k3
-      - nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
-  mistral:
-    name: Mistral AI Pro [C1]
-    env_key: C1_MISTRAL
-    base_url: https://api.mistral.ai/v1
-    api: openai-completions
-    models:
-      - codestral-latest
-  deepseek:
-    name: DeepSeek Direct [Paid]
-    env_key: DEEPSEEK_API_KEY
-    base_url: https://api.deepseek.com/v1
-    api: openai-completions
-    models:
-      - deepseek-chat
-      - deepseek-reasoner
-  deepseek_c1:
-    name: DeepSeek Direct [C1]
-    env_key: C1_DEEPSEEK
-    base_url: https://api.deepseek.com/v1
-    api: openai-completions
-    models:
-      - deepseek-chat
-      - deepseek-reasoner
-database:
+{providers_yaml}database:
   journal_mode: wal
 runtime:
   nofile_soft_limit: 4096
-_config_version: 40
+_config_version: 41
 fallback_model:
   provider: openrouter
   model: minimax/minimax-m3:free
@@ -2463,18 +2425,12 @@ fallback_model:
             with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
                 f.write(hermes_yaml)
 
-            hermes_clean_cache = {
-                "google": {"fp": "google-curated-v3", "at": time.time(), "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]},
-                "openrouter": {"fp": "openrouter-curated-v3", "at": time.time(), "models": ["openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free", "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free", "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free"]},
-                "nvidia": {"fp": "nvidia-curated-v3", "at": time.time(), "models": ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]},
-                "mistral": {"fp": "mistral-curated-v3", "at": time.time(), "models": ["codestral-latest"]},
-                "deepseek": {"fp": "deepseek-curated-v3", "at": time.time(), "models": ["deepseek-chat", "deepseek-reasoner"]}
-            }
-            atomic_json_write(HERMES_CACHE, hermes_clean_cache)
+            atomic_json_write(HERMES_CACHE, hermes_cache)
 
-            self.log(f"✅ Hermes Agent sincronizado y purgado: {HERMES_CONFIG}")
+            model_count = sum(len(c.get("models", [])) for c in hermes_cache.values())
+            self.log(f"✅ Hermes Agent sincronizado: {len(hermes_cache)} proveedores, {model_count} modelos → {HERMES_CONFIG}")
             if not silent:
-                QMessageBox.information(self, "Hermes Sincronizado", f"✅ Hermes Agent configurado en:\n{HERMES_CONFIG}")
+                QMessageBox.information(self, "Hermes Sincronizado", f"✅ Flota dinámica exportada a Hermes:\n\n• {len(hermes_cache)} proveedores\n• {model_count} modelos\n• {HERMES_CONFIG}")
         except Exception as e:
             self.log(f"❌ Error sincronizando Hermes: {e}")
             if not silent:
