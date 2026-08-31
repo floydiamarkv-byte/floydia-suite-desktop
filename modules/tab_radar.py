@@ -39,7 +39,7 @@ from theme import (
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
-        if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
+        if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_hp45.sh")) or os.path.exists(os.path.join(curr, ".env")):
             return curr
         curr = os.path.dirname(curr)
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,10 +50,10 @@ OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
 ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
+SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 REPORTS_DIR = os.path.join(WORKSPACE_ROOT, "reports")
 CACHE_DIR = os.path.join(WORKSPACE_ROOT, "cache")
 RADAR_CACHE_FILE = os.path.join(CACHE_DIR, "last_radar_telemetry.json")
-SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 
 
 
@@ -682,7 +682,6 @@ class CatalogDiscoveryWorker(CancellableThread):
                                 "account_tag": "C7",
                                 "provider": "openrouter",
                                 "base_url": "https://openrouter.ai/api/v1",
-                                "key": self.openrouter_key,
                                 "context": ctx,
                                 "badge": badge,
                                 "category": cat,
@@ -776,7 +775,7 @@ class CatalogDiscoveryWorker(CancellableThread):
             self.error_signal.emit(f"Error general en descubrimiento de catálogo: {top_exc}")
 
 
-class SyncHP45Worker(QThread):
+class SyncHP45Worker(CancellableThread):
     sync_finished = pyqtSignal(bool, str)
 
     def __init__(self, script_path: str):
@@ -786,14 +785,16 @@ class SyncHP45Worker(QThread):
     def run(self):
         try:
             res = subprocess.run(["bash", self.script_path], capture_output=True, text=True, timeout=15, check=False)
+            if self.is_cancelled():
+                return
             if res.returncode == 0:
-                self.sync_finished.emit(True, "Modelos propagados hacia el nodo remoto de respaldo.")
+                self.sync_finished.emit(True, "Modelos propagados hacia Laptop HP45 (tec@192.168.1.200).")
             else:
                 self.sync_finished.emit(False, f"Fallo en script ({res.returncode}): {res.stderr.strip()[:100]}")
         except Exception as exc:
             self.sync_finished.emit(False, f"Excepción en réplica: {exc}")
 
-class AIAdvisorWorker(QThread):
+class AIAdvisorWorker(CancellableThread):
     response_ready = pyqtSignal(str)
     log_signal = pyqtSignal(str)
 
@@ -801,10 +802,6 @@ class AIAdvisorWorker(QThread):
         super().__init__()
         self.prompt = prompt
         self.telemetry = telemetry
-        self._cancel_event = threading.Event()
-
-    def cancel(self):
-        self._cancel_event.set()
 
     def run(self):
         self.log_signal.emit("🧠 Consultando al Asesor IA de FloydIA con telemetría en vivo...")
@@ -888,6 +885,7 @@ class TabRadar(QWidget):
         self.advisor_worker: Optional[AIAdvisorWorker] = None
         self.discovery_worker: Optional[CatalogDiscoveryWorker] = None
         self.sync_worker: Optional[SyncHP45Worker] = None
+        self._kpi_throttle_timer: Optional[QTimer] = None
 
         self.init_ui()
         self.populate_table()
@@ -1297,8 +1295,8 @@ class TabRadar(QWidget):
 
         btn_sync_hp = QPushButton("💻 Nodo Remoto")
         btn_sync_hp.setObjectName("SecondaryBtn")
-        btn_sync_hp.setToolTip("Ejecuta réplica hacia el nodo remoto configurado")
-        btn_sync_hp.clicked.connect(self.sync_to_hp45)
+        btn_sync_hp.setToolTip("Ejecuta réplica asíncrona hacia el nodo remoto configurado")
+        btn_sync_hp.clicked.connect(self.sync_to_remote)
         sync_row.addWidget(btn_sync_hp)
 
         btn_deepseek_export = QPushButton("📤 DeepSeek (C1..C7)")
@@ -1671,6 +1669,11 @@ class TabRadar(QWidget):
         self.probe_worker.start()
 
     def _on_probe_worker_cleanup(self):
+        """Fallback: restaura botones si finished_signal no se emitió (ej. cancelación)."""
+        self.btn_probe_curated.setEnabled(True)
+        self.btn_probe_curated.setText("⚡ SONDEAR FLOTA EN VIVO")
+        self.btn_probe_curated.setStyleSheet("")
+        self.btn_discover_global.setEnabled(True)
         if self.probe_worker:
             self.probe_worker.deleteLater()
             self.probe_worker = None
@@ -1741,11 +1744,12 @@ class TabRadar(QWidget):
         self.table_models_map[m_id] = model_res
         self.update_single_table_row(model_res)
         # Throttling de actualización de KPI cada 150ms
-        if not hasattr(self, "_kpi_throttle_timer") or not self._kpi_throttle_timer.isActive():
+        if self._kpi_throttle_timer is None:
             self._kpi_throttle_timer = QTimer(self)
             self._kpi_throttle_timer.setSingleShot(True)
             self._kpi_throttle_timer.setInterval(150)
             self._kpi_throttle_timer.timeout.connect(self.update_kpi_dashboard)
+        if not self._kpi_throttle_timer.isActive():
             self._kpi_throttle_timer.start()
 
     def handle_probe_finished(self, results: list):
@@ -2201,7 +2205,7 @@ class TabRadar(QWidget):
 
     def export_deepseek_dialog(self):
         """Abre el diálogo de exportación e inspección multi-cuenta para DeepSeek."""
-        deepseek_models = [m for m in self.fleet_data if m.get("provider") == "deepseek" or "deepseek" in m.get("id", "").lower()]
+        deepseek_models = [m for m in self.table_models_map.values() if m.get("provider") == "deepseek" or "deepseek" in m.get("id", "").lower()]
         if not deepseek_models:
             QMessageBox.warning(self, "DeepSeek", "No se encontraron modelos DeepSeek en la flota.")
             return
@@ -2256,7 +2260,7 @@ class TabRadar(QWidget):
         dlg.exec()
 
     def copy_deepseek_fast(self):
-        deepseek_models = [m for m in self.fleet_data if m.get("provider") == "deepseek" or "deepseek" in m.get("id", "").lower()]
+        deepseek_models = [m for m in self.table_models_map.values() if m.get("provider") == "deepseek" or "deepseek" in m.get("id", "").lower()]
         payload = {
             "deepseek_models": [
                 {"id": m.get("id"), "account": m.get("account_tag", "C1"), "name": m.get("name")}
@@ -2506,7 +2510,7 @@ fallback_model:
             if not silent:
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar Zed Editor: {e}")
 
-    def sync_to_hp45(self):
+    def sync_to_remote(self):
         if not os.path.exists(SYNC_REMOTE_SCRIPT):
             self.log("⚠️ Script sync_remote_node.sh no encontrado en cache.")
             return
@@ -2517,16 +2521,16 @@ fallback_model:
 
         self.log(f"💻 Ejecutando réplica asíncrona ({SYNC_REMOTE_SCRIPT})...")
         self.sync_worker = SyncHP45Worker(SYNC_REMOTE_SCRIPT)
-        self.sync_worker.sync_finished.connect(self._on_sync_hp45_finished)
-        self.sync_worker.finished.connect(self._on_sync_hp45_worker_finished)
+        self.sync_worker.sync_finished.connect(self._on_sync_remote_finished)
+        self.sync_worker.finished.connect(self._on_sync_remote_worker_finished)
         self.sync_worker.start()
 
-    def _on_sync_hp45_worker_finished(self):
+    def _on_sync_remote_worker_finished(self):
         if self.sync_worker:
             self.sync_worker.deleteLater()
             self.sync_worker = None
 
-    def _on_sync_hp45_finished(self, success: bool, msg: str):
+    def _on_sync_remote_finished(self, success: bool, msg: str):
         if success:
             self.log(f"✅ {msg}")
         else:

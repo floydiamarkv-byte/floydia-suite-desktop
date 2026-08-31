@@ -24,6 +24,15 @@ from theme import (
 )
 
 
+
+def get_diag_targets() -> dict:
+    return {
+        "gateway": (os.environ.get("GATEWAY_NAME", "Gateway / Router"), os.environ.get("GATEWAY_IP", "192.168.1.1")),
+        "server_1": (os.environ.get("SERVER1_NAME", "Homelab Node 1"), os.environ.get("SERVER1_IP", "192.168.1.238")),
+        "server_2": (os.environ.get("SERVER2_NAME", "Homelab Node 2"), os.environ.get("SERVER2_IP", "192.168.1.232")),
+        "internet": ("Google DNS (WAN)", os.environ.get("DNS_PRIMARY", "8.8.8.8"))
+    }
+
 def _probe_single_target(key: str, name: str, ip: str) -> tuple[str, dict]:
     """Ejecuta un probe ping individual de forma aislada y segura."""
     try:
@@ -42,22 +51,15 @@ def _probe_single_target(key: str, name: str, ip: str) -> tuple[str, dict]:
         return key, {"name": name, "ip": ip, "lat": "Error", "alive": False, "err": str(exc)}
 
 
-def get_diag_targets() -> dict:
-    return {
-        "gateway": (os.environ.get("GATEWAY_NAME", "Gateway / Router"), os.environ.get("GATEWAY_IP", "192.168.1.1")),
-        "server": (os.environ.get("HOMELAB_NAME", "Homelab Server"), os.environ.get("HOMELAB_IP", "127.0.0.1")),
-        "dns_cf": ("Cloudflare DNS (WAN)", os.environ.get("DNS_PRIMARY", "1.1.1.1")),
-        "dns_google": ("Google DNS (WAN)", os.environ.get("DNS_SECONDARY", "8.8.8.8"))
-    }
-
-
 class NetworkDiagWorker(CancellableThread):
     latencies_updated = pyqtSignal(dict)
     log_emitted = pyqtSignal(str)
 
     def run(self):
         targets = get_diag_targets()
+        
         res = {}
+        # Concurrencia real con ThreadPoolExecutor: 4 probes en paralelo
         with ThreadPoolExecutor(max_workers=4) as executor:
             future_to_key = {
                 executor.submit(_probe_single_target, k, name, ip): k 
@@ -117,8 +119,12 @@ class TabDiagnostics(QWidget):
         self.grid_net.setSpacing(10)
         self.net_widgets = {}
 
-        targets_map = get_diag_targets()
-        items = [(k, v[0], v[1]) for k, v in targets_map.items()]
+        items = [
+            ("router", "Router MikroTik", "192.168.1.1"),
+            ("ct114", "Proxmox CT114", "192.168.1.238"),
+            ("ct106", "Proxmox CT106", "192.168.1.232"),
+            ("internet", "Google DNS (WAN)", "8.8.8.8"),
+        ]
 
         row = 0
         col = 0

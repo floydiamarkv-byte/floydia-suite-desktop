@@ -25,21 +25,23 @@ from PyQt6.QtWidgets import (
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
-        if os.path.exists(os.path.join(curr, ".agents", "skills")) or os.path.exists(os.path.join(curr, "requirements.txt")):
+        if os.path.exists(os.path.join(curr, "SCRIPTS", "mcp_profile_selector.py")):
             return curr
         curr = os.path.dirname(curr)
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
-MCP_CONFIG_PATH = os.environ.get("MCP_CONFIG_PATH", os.path.expanduser("~/.gemini/config/mcp_config.json"))
-MCP_BACKUP_PATH = os.path.expanduser("~/.gemini/config/mcp_config.json.bak")
-OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
-SKILLS_DIR = os.path.join(WORKSPACE_ROOT, ".agents", "skills")
-SKILLS_ARCHIVE_DIR = os.path.join(SKILLS_DIR, "_archive")
+SCRIPTS_DIR = os.path.join(WORKSPACE_ROOT, "SCRIPTS")
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
 
 class DefaultSkillsHelper:
     DEPRECATED_SERVERS = set()
     PROTECTED_USER_SKILLS = {"mejora-prompt", "handon-handoff", "harness-workflow", "obsidian-memory-bank"}
+    SKILL_PRESETS = {
+        "diario": {"name": "⚡ Diario Ultra-Ligero", "badge": "4 Skills", "description": "Handoff + Prompt Optimizer + Harness + Obsidian.", "skills": ["handon-handoff", "mejora-prompt", "harness-workflow", "obsidian-memory-bank"]},
+        "full": {"name": "🚀 Full Agent Suite", "badge": "Todas", "description": "Activa todas las habilidades disponibles.", "skills": []}
+    }
     
     @staticmethod
     def get_skills_catalog():
@@ -83,6 +85,12 @@ try:
     import mcp_profile_selector
 except ImportError:
     mcp_profile_selector = DefaultSkillsHelper()
+
+MCP_CONFIG_PATH = os.environ.get("MCP_CONFIG_PATH", os.path.expanduser("~/.gemini/config/mcp_config.json"))
+MCP_BACKUP_PATH = os.path.expanduser("~/.gemini/config/mcp_config.json.bak")
+OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
+SKILLS_DIR = os.path.join(WORKSPACE_ROOT, ".agents", "skills")
+SKILLS_ARCHIVE_DIR = os.path.join(SKILLS_DIR, "_archive")
 
 
 def atomic_json_write(path: str, data: Any) -> None:
@@ -361,14 +369,21 @@ class TabMcpSkills(QWidget):
         top_card_lay.addWidget(self.bar_mcp_budget)
         top_card_lay.addStretch()
 
-        self.btn_sync_opencode_mcp = QPushButton("⚡ Sync MCPs a OpenCode")
+        self.btn_sync_opencode_mcp = QPushButton("⚡ Sync OpenCode")
         self.btn_sync_opencode_mcp.setObjectName("SecondaryBtn")
         self.btn_sync_opencode_mcp.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_sync_opencode_mcp.setToolTip("Propaga los servidores MCP activos hacia ~/.config/opencode/opencode.jsonc")
         self.btn_sync_opencode_mcp.clicked.connect(lambda: self.sync_mcps_to_opencode(silent=False))
         top_card_lay.addWidget(self.btn_sync_opencode_mcp)
 
-        self.btn_save_mcp = QPushButton("💾 Guardar y Aplicar mcp_config.json")
+        self.btn_sync_dsh_mcp = QPushButton("⚡ Sync DeepSeek (DSH)")
+        self.btn_sync_dsh_mcp.setObjectName("SecondaryBtn")
+        self.btn_sync_dsh_mcp.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_sync_dsh_mcp.setToolTip("Propaga los servidores MCP activos hacia ~/.dsh/profiles/web/cordis.patch.yml")
+        self.btn_sync_dsh_mcp.clicked.connect(lambda: self.sync_mcps_to_dsh(silent=False))
+        top_card_lay.addWidget(self.btn_sync_dsh_mcp)
+
+        self.btn_save_mcp = QPushButton("💾 Guardar y Aplicar")
         self.btn_save_mcp.setObjectName("PrimaryBtn")
         self.btn_save_mcp.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save_mcp.clicked.connect(self.save_mcp_config)
@@ -794,6 +809,95 @@ class TabMcpSkills(QWidget):
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con OpenCode: {e}")
             return False
 
+    def sync_mcps_to_dsh(self, silent: bool = False) -> bool:
+        """Propaga los servidores MCP activos hacia ~/.dsh/profiles/web/cordis.patch.yml para DeepSeek Harness."""
+        try:
+            dsh_patch_path = os.path.expanduser("~/.dsh/profiles/web/cordis.patch.yml")
+            if not os.path.exists(os.path.dirname(dsh_patch_path)):
+                return False
+
+            mcp_servers = self.mcp_config_data.get("mcpServers", {})
+            ide_internal_mcps = {"notebooks", "visualization", "data-agent-kit"}
+            yaml_unsafe = {'@', '#', '!', '&', '*', '{', '}', '[', ']', '|', '>', ',', '?', ':', '-', ' '}
+
+            def yaml_val(v: str) -> str:
+                if not v:
+                    return '""'
+                if any(c in v for c in yaml_unsafe) or v.startswith(('%', '`')):
+                    return '"' + v.replace('\\', '\\\\').replace('"', '\\"') + '"'
+                return v
+
+            active_entries = []
+            for name, srv in sorted(mcp_servers.items()):
+                if name in ide_internal_mcps or name.startswith("#"):
+                    continue
+                cb = self.server_checkboxes.get(name)
+                is_enabled = cb.isChecked() if cb is not None else not srv.get("disabled", False)
+                if not is_enabled:
+                    continue
+
+                cmd = srv.get("command", "")
+                args = srv.get("args", [])
+                env = srv.get("env", {})
+
+                lines = [
+                    f"    - id: mcp-{name}",
+                    f"      name: '@deepseek-ai/dsh-mcp-client'",
+                    f"      config:",
+                    f"        transport: stdio",
+                    f"        serverName: {name}",
+                    f"        command: {yaml_val(cmd)}",
+                ]
+                if args:
+                    lines.append("        args:")
+                    for arg in args:
+                        lines.append(f"          - {yaml_val(arg)}")
+                else:
+                    lines.append("        args: []")
+
+                lines.append(f"        cwd: {WORKSPACE_ROOT}")
+                if env:
+                    lines.append("        env:")
+                    for k, v in env.items():
+                        lines.append(f"          {k}: {yaml_val(v)}")
+                lines.append("        failOnStartupError: false")
+                active_entries.append("\n".join(lines))
+
+            header = f"# cordis.patch.yml — Sincronizado automáticamente por FloydIA Suite\n"
+            parts = [header]
+            if active_entries:
+                parts.append("- insert:\n" + "\n\n".join(active_entries) + "\n")
+            else:
+                parts.append("# Sin MCPs activos\n")
+
+            parts.append("""- id: llm-deepseek
+  disabled: true
+
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+    workspaceRoot: """ + WORKSPACE_ROOT + """
+
+- id: approval
+  config:
+    policy: never
+""")
+            content = "\n".join(parts)
+            with open(dsh_patch_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "DSH MCP Sincronizado",
+                    f"✅ Sincronizados exitosamente {len(active_entries)} servidores MCP en DeepSeek Harness:\n{dsh_patch_path}"
+                )
+            return True
+        except Exception as e:
+            if not silent:
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con DSH: {e}")
+            return False
+
     def save_mcp_config(self):
         if not os.path.exists(MCP_CONFIG_PATH):
             return
@@ -808,8 +912,9 @@ class TabMcpSkills(QWidget):
 
             atomic_json_write(MCP_CONFIG_PATH, self.mcp_config_data)
 
-            # Auto-propagación silenciosa a OpenCode
+            # Auto-propagación silenciosa a OpenCode y DeepSeek Harness (DSH)
             self.sync_mcps_to_opencode(silent=True)
+            self.sync_mcps_to_dsh(silent=True)
 
             active_cnt = sum(1 for cb in self.server_checkboxes.values() if cb.isChecked())
             QMessageBox.information(
@@ -817,7 +922,7 @@ class TabMcpSkills(QWidget):
                 "Configuración Guardada",
                 f"✅ mcp_config.json actualizado exitosamente.\n\n"
                 f"• MCPs Activos: {active_cnt}\n"
-                f"• Sincronizado con: OpenCode (~/.config/opencode/opencode.jsonc)\n"
+                f"• Sincronizado con: OpenCode y DeepSeek Harness (DSH)\n"
                 f"• Backup generado: {MCP_BACKUP_PATH}"
             )
         except Exception as e:

@@ -39,7 +39,7 @@ from theme import (
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
-        if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
+        if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_hp45.sh")) or os.path.exists(os.path.join(curr, ".env")):
             return curr
         curr = os.path.dirname(curr)
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,6 +53,8 @@ OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
 ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
+SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
+EXPORT_REMOTE_KEYS_SCRIPT = os.path.join(CACHE_DIR, "export_remote_keys.sh")
 
 
 def load_env_vars() -> Dict[str, str]:
@@ -661,29 +663,45 @@ fallback_model:
             results["EnvSync"] = False
             self.log_signal.emit(f"  ❌ Error persistiendo configuración: {e}")
 
-        # 5. Generación de Script de Réplica de Respaldo
+        # 5. Generación de Script de Réplica HP45
         try:
-            os.makedirs(os.path.dirname(APIS_CONFIG_FILE), exist_ok=True)
-            export_script_path = os.path.join(WORKSPACE_ROOT, "cache", "sync_remote_node.sh")
+            os.makedirs(os.path.dirname(EXPORT_HP45_KEYS_SCRIPT), exist_ok=True)
             export_lines = [
                 "#!/usr/bin/env bash",
-                "# Script generado automáticamente por FloydIA Suite para réplica segura en nodo remoto",
+                "# Script generado automáticamente por FloydIA Suite 2.0 para réplica segura en HP45",
                 "set -euo pipefail",
-                'REMOTE_HOST="${REMOTE_HOST:-127.0.0.1}"',
-                'REMOTE_USER="${REMOTE_USER:-$USER}"',
-                'echo "🚀 Sincronizando configuraciones de agentes hacia nodo remoto ($REMOTE_HOST)..."',
-                'rsync -avz --inplace ~/.config/opencode/opencode.jsonc "$REMOTE_USER@$REMOTE_HOST:~/.config/opencode/opencode.jsonc" || true',
-                'rsync -avz --inplace ~/.hermes/config.yaml "$REMOTE_USER@$REMOTE_HOST:~/.hermes/config.yaml" || true',
-                'echo "✅ Sincronización hacia nodo remoto completada."'
+                'HP45_HOST="${HP45_HOST:-192.168.1.200}"',
+                'HP45_USER="${HP45_USER:-tec}"',
+                'echo "🚀 Sincronizando configuraciones de agentes hacia HP45 ($HP45_HOST)..."',
+                'rsync -avz --inplace ~/.config/opencode/opencode.jsonc "$HP45_USER@$HP45_HOST:~/.config/opencode/opencode.jsonc" || true',
+                'rsync -avz --inplace ~/.hermes/config.yaml "$HP45_USER@$HP45_HOST:~/.hermes/config.yaml" || true',
+                'echo "✅ Sincronización hacia HP45 completada."'
             ]
-            with open(export_script_path, "w", encoding="utf-8") as f:
+            with open(EXPORT_HP45_KEYS_SCRIPT, "w", encoding="utf-8") as f:
                 f.write("\n".join(export_lines) + "\n")
-            os.chmod(export_script_path, 0o755)
-            results["Remote_Script"] = True
-            self.log_signal.emit(f"  ✅ Script de réplica generado: {export_script_path}")
+            os.chmod(EXPORT_HP45_KEYS_SCRIPT, 0o755)
+            results["HP45_Script"] = True
+            self.log_signal.emit(f"  ✅ Script de réplica HP45 generado: {EXPORT_HP45_KEYS_SCRIPT}")
         except Exception as e:
-            results["Remote_Script"] = False
-            self.log_signal.emit(f"  ⚠️ Aviso generando script de réplica: {e}")
+            results["HP45_Script"] = False
+            self.log_signal.emit(f"  ⚠️ Aviso generando script HP45: {e}")
+
+        # 6. Ejecución Asíncrona de sync_models_hp45.sh (si está presente)
+        if os.path.exists(SYNC_HP45_SCRIPT):
+            try:
+                import subprocess
+                res = subprocess.run([SYNC_HP45_SCRIPT], capture_output=True, text=True, timeout=10)
+                if res.returncode == 0:
+                    results["HP45"] = True
+                    self.log_signal.emit("  ✅ Réplica enviada a HP45 exitosamente.")
+                else:
+                    results["HP45"] = False
+                    self.log_signal.emit(f"  ⚠️ Réplica HP45 terminó con aviso: {res.stderr[:50]}")
+            except Exception as e:
+                results["HP45"] = False
+                self.log_signal.emit(f"  ⚠️ HP45 no disponible en red local: {e}")
+        else:
+            results["HP45"] = None
 
         self.finished_signal.emit(results)
 
@@ -1279,9 +1297,8 @@ class TabApiManager(QWidget):
         btn_sync_zed.clicked.connect(lambda: self.sync_single_target("zed"))
         agents_row.addWidget(btn_sync_zed)
 
-        btn_sync_hp45 = QPushButton("💻 Nodo Remoto")
+        btn_sync_hp45 = QPushButton("💻 Réplica HP45")
         btn_sync_hp45.setObjectName("SecondaryBtn")
-        btn_sync_hp45.setToolTip("Ejecuta réplica rsync hacia el nodo remoto configurado")
         btn_sync_hp45.clicked.connect(lambda: self.sync_single_target("hp45"))
         agents_row.addWidget(btn_sync_hp45)
 
@@ -1617,7 +1634,8 @@ class TabApiManager(QWidget):
                 a["last_status"] = res.get("status")
                 a["last_latency"] = res.get("latency_ms", 0)
                 break
-        self.populate_table()
+        # Actualizar solo la fila específica en vez de reconstruir toda la tabla
+        self._update_single_api_row(api_id, res)
 
     def _on_ping_finished(self):
         self.btn_test_all.setEnabled(True)
@@ -1662,20 +1680,210 @@ class TabApiManager(QWidget):
             self.propagate_worker = None
 
     def sync_single_target(self, target: str):
-        if target in ("opencode", "hermes", "zed"):
-            self.propagate_all_agents()
+        """Propaga configuración SOLO al agente específico solicitado."""
+        if target == "opencode":
+            try:
+                self._propagate_to_opencode()
+                self.log("\u2705 OpenCode sincronizado individualmente.")
+                QMessageBox.information(self, "OpenCode", "\u2705 Configuración propagada a OpenCode.")
+            except Exception as e:
+                self.log(f"\u274c Error en OpenCode: {e}")
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar OpenCode: {e}")
+        elif target == "hermes":
+            try:
+                self._propagate_to_hermes()
+                self.log("\u2705 Hermes Agent sincronizado individualmente.")
+                QMessageBox.information(self, "Hermes", "\u2705 Configuración propagada a Hermes Agent.")
+            except Exception as e:
+                self.log(f"\u274c Error en Hermes: {e}")
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar Hermes: {e}")
+        elif target == "zed":
+            try:
+                self._propagate_to_zed()
+                self.log("\u2705 Zed Editor sincronizado individualmente.")
+                QMessageBox.information(self, "Zed", "\u2705 Configuración propagada a Zed Editor.")
+            except Exception as e:
+                self.log(f"\u274c Error en Zed: {e}")
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar Zed: {e}")
         elif target == "hp45":
-            sync_script = os.path.join(CACHE_DIR, "sync_remote_node.sh")
-            if os.path.exists(sync_script):
+            if os.path.exists(SYNC_HP45_SCRIPT):
                 import subprocess
                 try:
-                    subprocess.Popen([sync_script])
-                    self.log("💻 Réplica enviada a nodo remoto en segundo plano.")
-                    QMessageBox.information(self, "Nodo Remoto", "✅ Réplica enviada a nodo remoto.")
+                    subprocess.Popen([SYNC_HP45_SCRIPT])
+                    self.log("\U0001f4bb R\u00e9plica enviada a HP45 en segundo plano.")
+                    QMessageBox.information(self, "HP45", "\u2705 R\u00e9plica enviada a HP45.")
                 except Exception as e:
-                    self.log(f"❌ Error ejecutando script de réplica: {e}")
+                    self.log(f"\u274c Error ejecutando script HP45: {e}")
             else:
-                QMessageBox.warning(self, "Nodo Remoto", "Script sync_remote_node.sh no encontrado en cache.")
+                QMessageBox.warning(self, "HP45", "Script sync_models_hp45.sh no encontrado.")
+
+    def _backup_file_local(self, path: str):
+        if os.path.exists(path):
+            try:
+                import shutil
+                shutil.copy2(path, f"{path}.bak")
+            except Exception:
+                pass
+
+    def _propagate_to_opencode(self):
+        """Propaga configuración solo a OpenCode."""
+        self._backup_file_local(OPENCODE_CONFIG)
+        existing_mcp = {}
+        if os.path.exists(OPENCODE_CONFIG):
+            try:
+                with open(OPENCODE_CONFIG, "r", encoding="utf-8") as f:
+                    old_json = json.load(f)
+                    existing_mcp = old_json.get("mcp", {})
+            except Exception:
+                pass
+
+        opencode_providers = {}
+        for api in self.apis:
+            if not api.get("enabled", True):
+                continue
+            prov = api.get("provider", "custom")
+            acc_tag = api.get("account_tag", "C1")
+            env_k = api.get("env_key", "")
+            base_u = api.get("base_url", "")
+            test_m = api.get("test_model", "default")
+            prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
+
+            npm_pkg = "@ai-sdk/openai"
+            if prov == "google":
+                npm_pkg = "@ai-sdk/google"
+            elif prov == "mistral":
+                npm_pkg = "@ai-sdk/mistral"
+
+            opts = {}
+            if base_u:
+                opts["baseURL"] = base_u
+            if env_k:
+                opts["apiKey"] = f"{{env:{env_k}}}"
+
+            badge = get_account_badge_label(acc_tag)
+            models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
+
+            opencode_providers[prov_key] = {
+                "npm": npm_pkg,
+                "name": f"{badge} {api.get('name', prov)}",
+                "options": opts,
+                "models": models_dict
+            }
+
+        opencode_cfg = {
+            "$schema": "https://opencode.ai/config.json",
+            "model": "google/gemini-3.7-flash",
+            "small_model": "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "provider": opencode_providers
+        }
+        if existing_mcp:
+            opencode_cfg["mcp"] = existing_mcp
+
+        os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
+        atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
+
+    def _propagate_to_hermes(self):
+        """Propaga configuración solo a Hermes Agent."""
+        self._backup_file_local(HERMES_CONFIG)
+        providers_yaml = []
+        for api in self.apis:
+            if not api.get("enabled", True):
+                continue
+            prov = api.get("provider", "custom")
+            acc_tag = api.get("account_tag", "C1")
+            env_k = api.get("env_key", "")
+            base_u = api.get("base_url", "")
+            tm = api.get("test_model", "default")
+            prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
+            model_lines = f"      - {tm}"
+
+            providers_yaml.append(f"""  {prov_key}:
+    name: \"{api.get('name', prov)}\"
+    env_key: {env_k}
+    base_url: {base_u}
+    api: openai-completions
+    models:
+{model_lines}""")
+
+        hermes_content = f"""model:
+  default: gemini-3.7-flash
+  provider: google
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+providers:
+{chr(10).join(providers_yaml)}
+database:
+  journal_mode: wal
+runtime:
+  nofile_soft_limit: 4096
+_config_version: 40
+fallback_model:
+  provider: openrouter
+  model: minimax/minimax-m3:free
+"""
+        os.makedirs(os.path.dirname(HERMES_CONFIG), exist_ok=True)
+        with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
+            f.write(hermes_content)
+
+    def _propagate_to_zed(self):
+        """Propaga configuración solo a Zed Editor."""
+        self._backup_file_local(ZED_CONFIG)
+        if os.path.exists(ZED_CONFIG):
+            with open(ZED_CONFIG, "r", encoding="utf-8") as f:
+                zed_data = json.load(f)
+        else:
+            zed_data = {}
+
+        if "agent" not in zed_data:
+            zed_data["agent"] = {}
+
+        zed_data["agent"]["default_model"] = {
+            "effort": "high",
+            "enable_thinking": True,
+            "provider": "openrouter",
+            "model": "minimax/minimax-m3:free"
+        }
+        os.makedirs(os.path.dirname(ZED_CONFIG), exist_ok=True)
+        with open(ZED_CONFIG, "w", encoding="utf-8") as f:
+            json.dump(zed_data, f, indent=2)
+
+    def _update_single_api_row(self, api_id: str, res: dict):
+        """Actualiza solo la fila específica en la tabla sin reconstruir todo."""
+        for row in range(self.table_apis.rowCount()):
+            item_name = self.table_apis.item(row, 1)
+            if not item_name:
+                continue
+            # Buscar por la columna de variable .env o nombre para encontrar la fila correcta
+            for a in self.apis:
+                if a.get("id") == api_id:
+                    expected_name = f"{get_account_badge_label(a.get('account_tag', 'C1'))} {a.get('name', api_id)}"
+                    if item_name.text() == expected_name:
+                        st = res.get("status", "Sin probar")
+                        lat = res.get("latency_ms", 0)
+                        if st == "200_OK":
+                            st_text = f"\U0001f7e2 200 OK ({lat}ms)"
+                            st_color = QColor("#10B981")
+                            sort_rank = 1
+                        elif "429" in st:
+                            st_text = "\U0001f7e1 429 Limit"
+                            st_color = QColor("#F59E0B")
+                            sort_rank = 2
+                        elif st != "Sin probar":
+                            st_text = f"\U0001f534 {st}"
+                            st_color = QColor("#EF4444")
+                            sort_rank = 3
+                        else:
+                            st_text = "\u26aa Sin probar"
+                            st_color = QColor("#94A3B8")
+                            sort_rank = 4
+
+                        item_st = self.table_apis.item(row, 6)
+                        if item_st:
+                            item_st.setText(st_text)
+                            item_st.setForeground(st_color)
+                            if isinstance(item_st, SortableTableWidgetItem):
+                                item_st.sort_value = sort_rank
+                        return
+                    break
 
     def export_deepseek_dialog(self):
         deepseek_list = [a for a in self.apis if a.get("provider") == "deepseek"]

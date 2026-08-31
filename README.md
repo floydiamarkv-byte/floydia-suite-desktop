@@ -31,18 +31,21 @@
 * **Sondeo en Vivo Concurrente**: Medición en tiempo real de latencia (ms), TTFT (Time to First Token), TPS (Tokens per Second) y detección de errores de cuota (HTTP 402/429).
 * **Filtro Avanzado de Ventana de Contexto**: Filtra al instante modelos escaneados por tamaño de contexto (`≥ 32k`, `≥ 128k`, `≥ 200k`, `≥ 1M tokens`).
 * **Descargador de Catálogos Globales**: Importación y filtrado inteligente de más de 400 modelos desde OpenRouter, NVIDIA NIM, Google AI Studio y Mistral.
+* **Exportador Multi-Cuenta DeepSeek**: Diálogo de inspección y exportación directa de flotas DeepSeek V3 / R1 en formato JSON/YAML listo para arneses.
 * **Exportador de Reportes Ejecutivos**: Generación con 1-clic de informes ejecutivos en formato **Markdown (.md)** y **HTML interactivo**.
 * **Módulo Asesor IA Integrado**: Consulta a modelos locales o remotos para analizar la telemetría y recomendar el mejor modelo costo/eficiencia para tu tarea.
 
 ### 2. 🎛️ MCP Cockpit & Skills Studio
 * **Gestor de Servidores MCP**: Control granular de activación y desactivación de servidores Model Context Protocol (`~/.gemini/config/mcp_config.json`).
-* **Sincronización 1-Clic a OpenCode**: Puente de sincronización que propaga los servidores MCP activos hacia `~/.config/opencode/opencode.jsonc` en formato nativo.
+* **Sincronización 1-Clic a OpenCode**: Puente determinista que propaga los servidores MCP activos hacia `~/.config/opencode/opencode.jsonc`.
+* **Sincronización Automática a DeepSeek Harness (DSH)**: Genera y actualiza dinámicamente `~/.dsh/profiles/web/cordis.patch.yml` asegurando que DSH ejecute únicamente los MCPs autorizados en la suite.
 * **Presupuesto de Tokens de Skills**: Monitoreo visual de skills de agentes activos para asegurar un consumo óptimo (<700 tokens).
 
 ### 3. 🔑 API Manager & Propagación Multi-Cuenta
 * **Taxonomía Multi-Cuenta [C1..C8]**: Gestión centralizada de cuentas principales, secundarias y de respaldo para Google AI Studio, OpenRouter, DeepSeek, NVIDIA NIM y Mistral.
 * **Propagación 1-Clic a Agentes**: Generación determinista y atómica de configuraciones para:
   * **OpenCode**: `~/.config/opencode/opencode.jsonc` (preservando configuración MCP).
+  * **DeepSeek Harness (DSH)**: `~/.dsh/profiles/web/cordis.patch.yml` y variables de entorno.
   * **Hermes Agent**: `~/.hermes/config.yaml` y curación de caché de modelos.
   * **Zed Editor**: `~/.config/zed/settings.json`.
   * **Nodo Remoto / Homelab**: Script de réplica `rsync` configurable.
@@ -54,7 +57,7 @@
 * **Action Journal**: Registro de auditoría JSONL estructurado con marcas de tiempo y métricas de duración.
 
 ### 5. 📡 Diagnóstico de Red y Conectividad
-* **Probes Concurrentes en Paralelo**: Monitoreo continuo de latencias hacia Gateway local, servidores de Homelab y servidores DNS WAN (Cloudflare, Google).
+* **Probes Concurrentes en Paralelo (`ThreadPoolExecutor`)**: Monitoreo multihilo ultrarrápido de latencias hacia Gateway local, nodos Proxmox/Homelab y DNS WAN (Cloudflare, Google).
 
 ---
 
