@@ -180,16 +180,16 @@ def get_secret(keys: List[str]) -> Optional[str]:
 # Secretos Multi-Cuenta
 GOOGLE_C1_KEY = get_secret(["C1_GOOGLE_AISTUDIO", "GOOGLE_AI_STUDIO_API_KEY", "GOOGLE_API_KEY"])
 GOOGLE_C2_KEY = get_secret(["C2_GOOGLE_AISTUDIO"])
-OPENROUTER_C7_KEY = get_secret(["C7_OPENROUTER", "OPENROUTER_API_KEY", "C1_OPENROUTER"])
-OPENROUTER_C1_KEY = get_secret(["C1_OPENROUTER"])
+OPENROUTER_C7_KEY = get_secret(["C1_OPENROUTER", "C7_OPENROUTER_OPENCODE_HP15", "C7_OPENROUTER_API_KEY", "C7_OPENROUTER", "OPENROUTER_API_KEY"])
+OPENROUTER_C1_KEY = get_secret(["C1_OPENROUTER", "OPENROUTER_API_KEY"])
 NVIDIA_C7_KEY = get_secret(["C7_NVIDIA", "C7_NVIDIA_API_KEY"])
 NVIDIA_C1_KEY = get_secret(["C1_NVIDIA"])
 NVIDIA_C2_KEY = get_secret(["C2_NVIDIA"])
 MISTRAL_C1_KEY = get_secret(["C1_MISTRAL", "MISTRAL_API_KEY"])
 MISTRAL_C2_KEY = get_secret(["C2_MISTRAL"])
 DEEPSEEK_DIRECT_KEY = get_secret(["DEEPSEEK_API_KEY"])
-DEEPSEEK_C1_KEY = get_secret(["C1_DEEPSEEK"])
-DEEPSEEK_C7_KEY = get_secret(["C7_DEEPSEEK"])
+DEEPSEEK_C1_KEY = get_secret(["DEEPSEEK_API_KEY", "C7_DEEPSEEK", "C1_DEEPSEEK"])
+DEEPSEEK_C7_KEY = get_secret(["C7_DEEPSEEK", "DEEPSEEK_API_KEY"])
 GROQ_C1_KEY = get_secret(["C1_GROQ"])
 ZAI_C1_KEY = get_secret(["C1_Z_AI"])
 
@@ -2283,7 +2283,7 @@ class TabRadar(QWidget):
     PROVIDER_ENV_MAP = {
         ("google", "C1"): {"env_key": "C1_GOOGLE_AISTUDIO", "npm": "@ai-sdk/google", "label": "Google AI Studio Pro [C1]"},
         ("google", "C2"): {"env_key": "C2_GOOGLE_AISTUDIO", "npm": "@ai-sdk/google", "label": "Google AI Studio [C2]"},
-        ("openrouter", "C7"): {"env_key": "C7_OPENROUTER", "npm": "@ai-sdk/openai", "label": "OpenRouter Free [C7]", "base_url": "https://openrouter.ai/api/v1"},
+        ("openrouter", "C7"): {"env_key": "C1_OPENROUTER", "npm": "@ai-sdk/openai", "label": "OpenRouter Free [C7]", "base_url": "https://openrouter.ai/api/v1"},
         ("openrouter", "C1"): {"env_key": "C1_OPENROUTER", "npm": "@ai-sdk/openai", "label": "OpenRouter [C1]", "base_url": "https://openrouter.ai/api/v1"},
         ("nvidia", "C7"): {"env_key": "C7_NVIDIA", "npm": "@ai-sdk/openai", "label": "NVIDIA NIM [C7]", "base_url": "https://integrate.api.nvidia.com/v1"},
         ("nvidia", "C1"): {"env_key": "C1_NVIDIA", "npm": "@ai-sdk/openai", "label": "NVIDIA NIM [C1]", "base_url": "https://integrate.api.nvidia.com/v1"},
@@ -2291,7 +2291,7 @@ class TabRadar(QWidget):
         ("mistral", "C1"): {"env_key": "C1_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI Pro [C1]"},
         ("mistral", "C2"): {"env_key": "C2_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI [C2]"},
         ("deepseek", "Direct"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [Paid]", "base_url": "https://api.deepseek.com/v1"},
-        ("deepseek", "C1"): {"env_key": "C1_DEEPSEEK", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C1]", "base_url": "https://api.deepseek.com/v1"},
+        ("deepseek", "C1"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C1]", "base_url": "https://api.deepseek.com/v1"},
         ("deepseek", "C7"): {"env_key": "C7_DEEPSEEK", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C7]", "base_url": "https://api.deepseek.com/v1"},
         ("groq", "C1"): {"env_key": "C1_GROQ", "npm": "@ai-sdk/openai", "label": "Groq LPU [C1]", "base_url": "https://api.groq.com/openai/v1"},
         ("zai", "C1"): {"env_key": "C1_Z_AI", "npm": "@ai-sdk/openai", "label": "Z.AI GLM [C1]", "base_url": "https://api.z.ai/v1"},
