@@ -536,6 +536,16 @@ class PropagateAllWorker(CancellableThread):
                     "options": opts,
                     "models": models_dict
                 }
+                # Garantizar siempre el proveedor canónico primario (openrouter, google, deepseek, mistral, nvidia)
+                if prov not in opencode_providers:
+                    opencode_providers[prov] = {
+                        "npm": npm_pkg,
+                        "name": f"{prov.capitalize()} Fleet [Primary]",
+                        "options": dict(opts),
+                        "models": dict(models_dict)
+                    }
+                else:
+                    opencode_providers[prov]["models"].update(models_dict)
 
             opencode_cfg = {
                 "$schema": "https://opencode.ai/config.json",
@@ -1769,6 +1779,16 @@ class TabApiManager(QWidget):
                 "options": opts,
                 "models": models_dict
             }
+            # Garantizar siempre el proveedor canónico primario
+            if prov not in opencode_providers:
+                opencode_providers[prov] = {
+                    "npm": npm_pkg,
+                    "name": f"{prov.capitalize()} Fleet [Primary]",
+                    "options": dict(opts),
+                    "models": dict(models_dict)
+                }
+            else:
+                opencode_providers[prov]["models"].update(models_dict)
 
         opencode_cfg = {
             "$schema": "https://opencode.ai/config.json",

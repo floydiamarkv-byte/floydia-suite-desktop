@@ -2342,6 +2342,16 @@ class TabRadar(QWidget):
                     "options": options,
                     "models": model_entries
                 }
+                # Garantizar siempre el proveedor canónico primario (ej. openrouter, google, deepseek, mistral, nvidia)
+                if prov not in providers:
+                    providers[prov] = {
+                        "npm": cfg["npm"],
+                        "name": f"{prov.capitalize()} Fleet [Primary]",
+                        "options": dict(options),
+                        "models": dict(model_entries)
+                    }
+                else:
+                    providers[prov]["models"].update(model_entries)
 
             # Seleccionar modelo principal (preferir gemini-3.7-flash si existe)
             main_model = "google/gemini-3.7-flash"
@@ -2406,6 +2416,23 @@ class TabRadar(QWidget):
                     "at": time.time(),
                     "models": model_ids
                 }
+                # Garantizar siempre el proveedor canónico primario en Hermes
+                if prov not in hermes_cache:
+                    providers_yaml += f"""  {prov}:
+    name: {prov.capitalize()} Fleet [Primary]
+    env_key: {cfg['env_key']}
+    base_url: {base_url}
+    api: openai-completions
+    models:
+{models_yaml}
+"""
+                    hermes_cache[prov] = {
+                        "fp": f"{prov}-dynamic-v4",
+                        "at": time.time(),
+                        "models": list(model_ids)
+                    }
+                else:
+                    hermes_cache[prov]["models"] = list(set(hermes_cache[prov]["models"] + model_ids))
 
             hermes_yaml = f"""model:
   default: gemini-3.7-flash
