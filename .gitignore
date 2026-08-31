@@ -1,0 +1,31 @@
+# Environment and secrets
+.env
+*.env
+*.secrets
+*.key
+*.token
+
+# Python cache & virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# FloydIA Suite Runtime cache and reports
+cache/
+reports/
+logs/
+*.lock
+*.tmp
+*.bak
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+*.swp

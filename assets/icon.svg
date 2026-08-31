@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 544 420" width="544" height="420">
+  <title>FLOYDIA Icon</title>
+  <desc>FLOYDIA Icon — just the constellation and crystal triangle, no wordmark</desc>
+  <g stroke="#000000" stroke-width="1.5" stroke-linecap="round" fill="none">
+    <line x1="272" y1="90" x2="272" y2="116"/>
+    <line x1="272" y1="372" x2="272" y2="306"/>
+    <line x1="41" y1="228" x2="197" y2="228"/>
+    <line x1="503" y1="228" x2="345" y2="228"/>
+    <line x1="174" y1="337" x2="224" y2="282"/>
+    <line x1="369" y1="337" x2="320" y2="282"/>
+    <line x1="173" y1="115" x2="218" y2="167"/>
+    <line x1="371" y1="115" x2="326" y2="167"/>
+    <line x1="164" y1="183" x2="222" y2="208"/>
+    <line x1="378" y1="183" x2="322" y2="208"/>
+  </g>
+  <polygon points="272,130 182,292 272,222" fill="#70cbac"/>
+  <polygon points="272,130 362,292 272,222" fill="#170913"/>
+  <polygon points="182,292 362,292 272,222" fill="#152638"/>
+  <circle cx="272" cy="90" r="9" fill="#0ac7ab"/>
+  <circle cx="272" cy="372" r="9" fill="#10d2ad"/>
+  <circle cx="41" cy="228" r="9" fill="#10d6bd"/>
+  <circle cx="503" cy="228" r="8" fill="#ffffff" stroke="#000000" stroke-width="1.5"/>
+  <circle cx="174" cy="337" r="9" fill="#10d2ad"/>
+  <circle cx="369" cy="337" r="9" fill="#10d2ad"/>
+  <circle cx="173" cy="115" r="8" fill="#170913"/>
+  <circle cx="371" cy="115" r="8" fill="#170913"/>
+  <circle cx="164" cy="183" r="8" fill="#170913"/>
+  <circle cx="378" cy="183" r="8" fill="#170913"/>
+</svg>
