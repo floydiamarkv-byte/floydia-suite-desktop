@@ -229,10 +229,13 @@ CURATED_FLEET = [
     {"id": "codestral-latest", "name": "[C1] Mistral Codestral Latest", "account_tag": "C1", "provider": "mistral", "base_url": "https://api.mistral.ai/v1", "key": MISTRAL_C1_KEY, "context": 256000, "badge": "256k • Trial", "category": "code"},
     {"id": "c2/codestral-latest", "name": "[C2] Mistral Codestral Latest", "account_tag": "C2", "provider": "mistral", "base_url": "https://api.mistral.ai/v1", "key": MISTRAL_C2_KEY, "context": 256000, "badge": "256k • Trial", "category": "code"},
 
-    # DeepSeek Direct [Direct], [C1], [C7]
+    # DeepSeek Direct [Direct], [C1], [C7] — Chat V3 & Reasoner R1
     {"id": "deepseek-chat", "name": "[Direct] DeepSeek Chat V3 Paid", "account_tag": "Direct", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Paid", "category": "frontier"},
+    {"id": "deepseek-reasoner", "name": "[Direct] DeepSeek Reasoner R1 Paid", "account_tag": "Direct", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
     {"id": "c1/deepseek-chat", "name": "[C1] DeepSeek Chat V3", "account_tag": "C1", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C1_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Direct", "category": "frontier"},
+    {"id": "c1/deepseek-reasoner", "name": "[C1] DeepSeek Reasoner R1", "account_tag": "C1", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C1_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
     {"id": "c7/deepseek-chat", "name": "[C7] DeepSeek Chat V3", "account_tag": "C7", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C7_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Direct", "category": "frontier"},
+    {"id": "c7/deepseek-reasoner", "name": "[C7] DeepSeek Reasoner R1", "account_tag": "C7", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C7_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
 ]
 
 # Presets de prueba para sondas y benchmarks
@@ -2291,7 +2294,7 @@ class TabRadar(QWidget):
         ("mistral", "C1"): {"env_key": "C1_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI Pro [C1]"},
         ("mistral", "C2"): {"env_key": "C2_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI [C2]"},
         ("deepseek", "Direct"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [Paid]", "base_url": "https://api.deepseek.com/v1"},
-        ("deepseek", "C1"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C1]", "base_url": "https://api.deepseek.com/v1"},
+        ("deepseek", "C1"): {"env_key": "C1_DEEPSEEK", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C1]", "base_url": "https://api.deepseek.com/v1"},
         ("deepseek", "C7"): {"env_key": "C7_DEEPSEEK", "npm": "@ai-sdk/openai", "label": "DeepSeek Direct [C7]", "base_url": "https://api.deepseek.com/v1"},
         ("groq", "C1"): {"env_key": "C1_GROQ", "npm": "@ai-sdk/openai", "label": "Groq LPU [C1]", "base_url": "https://api.groq.com/openai/v1"},
         ("zai", "C1"): {"env_key": "C1_Z_AI", "npm": "@ai-sdk/openai", "label": "Z.AI GLM [C1]", "base_url": "https://api.z.ai/v1"},
@@ -2326,7 +2329,7 @@ class TabRadar(QWidget):
                 cfg = self.PROVIDER_ENV_MAP.get((prov, tag))
                 if not cfg:
                     continue
-                prov_key = prov if tag in ("C1", "Direct") else f"{prov}_{tag.lower()}"
+                prov_key = prov if tag in ("C1", "Direct") and prov not in providers else f"{prov}_{tag.lower()}"
                 options = {"apiKey": "{env:" + cfg["env_key"] + "}"}
                 if "base_url" in cfg:
                     options["baseURL"] = cfg["base_url"]
@@ -2385,54 +2388,66 @@ class TabRadar(QWidget):
         try:
             self._backup_file(HERMES_CONFIG)
 
-            # Construir config YAML dinámicamente desde la tabla activa
+            # Construir config YAML dinámicamente desde la tabla activa con diccionario deduplicado
             groups = self._build_provider_groups()
-            providers_yaml = ""
+            providers_dict = {}
             hermes_cache = {}
 
             for (prov, tag), models in sorted(groups.items()):
                 cfg = self.PROVIDER_ENV_MAP.get((prov, tag))
                 if not cfg:
                     continue
-                prov_key = prov if tag in ("C1", "Direct") else f"{prov}_{tag.lower()}"
+                prov_key = prov if tag in ("C1", "Direct") and prov not in providers_dict else f"{prov}_{tag.lower()}"
                 base_url = cfg.get("base_url", models[0].get("base_url", ""))
                 model_ids = []
                 for m in models:
                     m_id = m["id"]
                     clean_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/")) else m_id
-                    model_ids.append(clean_id)
+                    if clean_id not in model_ids:
+                        model_ids.append(clean_id)
 
-                models_yaml = "\n".join(f"      - {mid}" for mid in model_ids)
-                providers_yaml += f"""  {prov_key}:
-    name: {cfg['label']}
-    env_key: {cfg['env_key']}
-    base_url: {base_url}
-    api: openai-completions
-    models:
-{models_yaml}
-"""
+                providers_dict[prov_key] = {
+                    "name": cfg["label"],
+                    "env_key": cfg["env_key"],
+                    "base_url": base_url,
+                    "models": list(model_ids)
+                }
                 hermes_cache[prov_key] = {
                     "fp": f"{prov_key}-dynamic-v4",
                     "at": time.time(),
-                    "models": model_ids
+                    "models": list(model_ids)
                 }
                 # Garantizar siempre el proveedor canónico primario en Hermes
-                if prov not in hermes_cache:
-                    providers_yaml += f"""  {prov}:
-    name: {prov.capitalize()} Fleet [Primary]
-    env_key: {cfg['env_key']}
-    base_url: {base_url}
-    api: openai-completions
-    models:
-{models_yaml}
-"""
+                if prov not in providers_dict:
+                    providers_dict[prov] = {
+                        "name": f"{prov.capitalize()} Fleet [Primary]",
+                        "env_key": cfg["env_key"],
+                        "base_url": base_url,
+                        "models": list(model_ids)
+                    }
                     hermes_cache[prov] = {
                         "fp": f"{prov}-dynamic-v4",
                         "at": time.time(),
                         "models": list(model_ids)
                     }
                 else:
-                    hermes_cache[prov]["models"] = list(set(hermes_cache[prov]["models"] + model_ids))
+                    for mid in model_ids:
+                        if mid not in providers_dict[prov]["models"]:
+                            providers_dict[prov]["models"].append(mid)
+                        if mid not in hermes_cache[prov]["models"]:
+                            hermes_cache[prov]["models"].append(mid)
+
+            providers_yaml = ""
+            for pkey, pval in providers_dict.items():
+                models_yaml = "\n".join(f"      - {mid}" for mid in pval["models"])
+                providers_yaml += f"""  {pkey}:
+    name: "{pval['name']}"
+    env_key: {pval['env_key']}
+    base_url: {pval['base_url']}
+    api: openai-completions
+    models:
+{models_yaml}
+"""
 
             hermes_yaml = f"""model:
   default: gemini-3.7-flash

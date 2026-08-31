@@ -516,6 +516,7 @@ class PropagateAllWorker(CancellableThread):
                 if prov == "deepseek":
                     models_dict["deepseek-chat"] = {"name": f"{badge} DeepSeek Chat V3"}
                     models_dict["deepseek-reasoner"] = {"name": f"{badge} DeepSeek Reasoner R1"}
+                    models_dict["deepseek-v4-flash"] = {"name": f"{badge} DeepSeek V4 Flash"}
                 elif prov == "openrouter":
                     models_dict = {
                         "openrouter/auto": {"name": f"{badge} OpenRouter Auto"},
@@ -529,6 +530,9 @@ class PropagateAllWorker(CancellableThread):
                         "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 (Frontier)"},
                         "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 (Code)"}
                     }
+
+                # Identificador único de proveedor en OpenCode
+                prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in opencode_providers else f"{prov}_{acc_tag.lower()}"
 
                 opencode_providers[prov_key] = {
                     "npm": npm_pkg,
@@ -567,7 +571,7 @@ class PropagateAllWorker(CancellableThread):
         # 2. Hermes Agent (~/.hermes/config.yaml & cache)
         try:
             self._backup_file(HERMES_CONFIG)
-            providers_yaml = []
+            hermes_providers = {}
             for api in self.apis:
                 if not api.get("enabled", True):
                     continue
@@ -576,31 +580,49 @@ class PropagateAllWorker(CancellableThread):
                 env_k = api.get("env_key", "")
                 base_u = api.get("base_url", "")
                 tm = api.get("test_model", "default")
-                prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
+                prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in hermes_providers else f"{prov}_{acc_tag.lower()}"
 
                 if prov == "deepseek":
-                    model_lines = "      - deepseek-chat\n      - deepseek-reasoner"
+                    model_list = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]
                 elif prov == "openrouter":
-                    model_lines = """      - openrouter/auto
-      - openrouter/free
-      - meta-llama/llama-3.3-70b-instruct:free
-      - qwen/qwen-2.5-coder-32b-instruct:free
-      - deepseek/deepseek-r1:free
-      - google/gemini-2.0-flash-exp:free
-      - minimax/minimax-m3:free
-      - nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
-      - z-ai/glm-5.2:free
-      - poolside/laguna-s-2.1:free"""
+                    model_list = [
+                        "openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free",
+                        "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free",
+                        "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free",
+                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free",
+                        "poolside/laguna-s-2.1:free"
+                    ]
                 else:
-                    model_lines = f"      - {tm}"
+                    model_list = [tm]
 
-                providers_yaml.append(f"""  {prov_key}:
-    name: "{api.get('name', prov)}"
-    env_key: {env_k}
-    base_url: {base_u}
+                hermes_providers[prov_key] = {
+                    "name": api.get('name', prov),
+                    "env_key": env_k,
+                    "base_url": base_u,
+                    "models": model_list
+                }
+                if prov not in hermes_providers:
+                    hermes_providers[prov] = {
+                        "name": f"{prov.capitalize()} Fleet [Primary]",
+                        "env_key": env_k,
+                        "base_url": base_u,
+                        "models": list(model_list)
+                    }
+                else:
+                    for m_id in model_list:
+                        if m_id not in hermes_providers[prov]["models"]:
+                            hermes_providers[prov]["models"].append(m_id)
+
+            providers_yaml = []
+            for pkey, pval in hermes_providers.items():
+                m_lines = "\n".join(f"      - {mid}" for mid in pval["models"])
+                providers_yaml.append(f"""  {pkey}:
+    name: "{pval['name']}"
+    env_key: {pval['env_key']}
+    base_url: {pval['base_url']}
     api: openai-completions
     models:
-{model_lines}""")
+{m_lines}""")
 
             hermes_content = f"""model:
   default: gemini-3.7-flash
@@ -612,7 +634,7 @@ database:
   journal_mode: wal
 runtime:
   nofile_soft_limit: 4096
-_config_version: 40
+_config_version: 41
 fallback_model:
   provider: openrouter
   model: minimax/minimax-m3:free
@@ -622,11 +644,11 @@ fallback_model:
                 f.write(hermes_content)
 
             hermes_clean_cache = {
-                "google": {"fp": "google-curated-v3", "at": time.time(), "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]},
-                "openrouter": {"fp": "openrouter-curated-v3", "at": time.time(), "models": ["openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free", "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free"]},
-                "nvidia": {"fp": "nvidia-curated-v3", "at": time.time(), "models": ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]},
-                "mistral": {"fp": "mistral-curated-v3", "at": time.time(), "models": ["codestral-latest"]},
-                "deepseek": {"fp": "deepseek-curated-v3", "at": time.time(), "models": ["deepseek-chat", "deepseek-reasoner"]}
+                "google": {"fp": "google-curated-v4", "at": time.time(), "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]},
+                "openrouter": {"fp": "openrouter-curated-v4", "at": time.time(), "models": ["openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free", "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free"]},
+                "nvidia": {"fp": "nvidia-curated-v4", "at": time.time(), "models": ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]},
+                "mistral": {"fp": "mistral-curated-v4", "at": time.time(), "models": ["codestral-latest"]},
+                "deepseek": {"fp": "deepseek-curated-v4", "at": time.time(), "models": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]}
             }
             atomic_json_write(HERMES_CACHE, hermes_clean_cache)
 
@@ -1772,6 +1794,25 @@ class TabApiManager(QWidget):
 
             badge = get_account_badge_label(acc_tag)
             models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
+            if prov == "deepseek":
+                models_dict["deepseek-chat"] = {"name": f"{badge} DeepSeek Chat V3"}
+                models_dict["deepseek-reasoner"] = {"name": f"{badge} DeepSeek Reasoner R1"}
+                models_dict["deepseek-v4-flash"] = {"name": f"{badge} DeepSeek V4 Flash"}
+            elif prov == "openrouter":
+                models_dict = {
+                    "openrouter/auto": {"name": f"{badge} OpenRouter Auto"},
+                    "openrouter/free": {"name": f"{badge} OpenRouter Free"},
+                    "meta-llama/llama-3.3-70b-instruct:free": {"name": f"{badge} Llama 3.3 70B (Free)"},
+                    "qwen/qwen-2.5-coder-32b-instruct:free": {"name": f"{badge} Qwen 2.5 Coder (Free)"},
+                    "deepseek/deepseek-r1:free": {"name": f"{badge} DeepSeek R1 (Free)"},
+                    "google/gemini-2.0-flash-exp:free": {"name": f"{badge} Gemini 2.0 Flash (Free)"},
+                    "minimax/minimax-m3:free": {"name": f"{badge} MiniMax M3 (Frontier)"},
+                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} Nemotron 3 Nano"},
+                    "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 (Frontier)"},
+                    "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 (Code)"}
+                }
+
+            prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in opencode_providers else f"{prov}_{acc_tag.lower()}"
 
             opencode_providers[prov_key] = {
                 "npm": npm_pkg,
@@ -1805,7 +1846,7 @@ class TabApiManager(QWidget):
     def _propagate_to_hermes(self):
         """Propaga configuración solo a Hermes Agent."""
         self._backup_file_local(HERMES_CONFIG)
-        providers_yaml = []
+        hermes_providers = {}
         for api in self.apis:
             if not api.get("enabled", True):
                 continue
@@ -1814,16 +1855,49 @@ class TabApiManager(QWidget):
             env_k = api.get("env_key", "")
             base_u = api.get("base_url", "")
             tm = api.get("test_model", "default")
-            prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
-            model_lines = f"      - {tm}"
+            prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in hermes_providers else f"{prov}_{acc_tag.lower()}"
 
-            providers_yaml.append(f"""  {prov_key}:
-    name: \"{api.get('name', prov)}\"
-    env_key: {env_k}
-    base_url: {base_u}
+            if prov == "deepseek":
+                model_list = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]
+            elif prov == "openrouter":
+                model_list = [
+                    "openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free",
+                    "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free",
+                    "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free",
+                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free",
+                    "poolside/laguna-s-2.1:free"
+                ]
+            else:
+                model_list = [tm]
+
+            hermes_providers[prov_key] = {
+                "name": api.get('name', prov),
+                "env_key": env_k,
+                "base_url": base_u,
+                "models": model_list
+            }
+            if prov not in hermes_providers:
+                hermes_providers[prov] = {
+                    "name": f"{prov.capitalize()} Fleet [Primary]",
+                    "env_key": env_k,
+                    "base_url": base_u,
+                    "models": list(model_list)
+                }
+            else:
+                for m_id in model_list:
+                    if m_id not in hermes_providers[prov]["models"]:
+                        hermes_providers[prov]["models"].append(m_id)
+
+        providers_yaml = []
+        for pkey, pval in hermes_providers.items():
+            m_lines = "\n".join(f"      - {mid}" for mid in pval["models"])
+            providers_yaml.append(f"""  {pkey}:
+    name: "{pval['name']}"
+    env_key: {pval['env_key']}
+    base_url: {pval['base_url']}
     api: openai-completions
     models:
-{model_lines}""")
+{m_lines}""")
 
         hermes_content = f"""model:
   default: gemini-3.7-flash
@@ -1835,7 +1909,7 @@ database:
   journal_mode: wal
 runtime:
   nofile_soft_limit: 4096
-_config_version: 40
+_config_version: 41
 fallback_model:
   provider: openrouter
   model: minimax/minimax-m3:free
@@ -1843,6 +1917,15 @@ fallback_model:
         os.makedirs(os.path.dirname(HERMES_CONFIG), exist_ok=True)
         with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
             f.write(hermes_content)
+
+        hermes_clean_cache = {
+            "google": {"fp": "google-curated-v4", "at": time.time(), "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]},
+            "openrouter": {"fp": "openrouter-curated-v4", "at": time.time(), "models": ["openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free", "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free"]},
+            "nvidia": {"fp": "nvidia-curated-v4", "at": time.time(), "models": ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]},
+            "mistral": {"fp": "mistral-curated-v4", "at": time.time(), "models": ["codestral-latest"]},
+            "deepseek": {"fp": "deepseek-curated-v4", "at": time.time(), "models": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]}
+        }
+        atomic_json_write(HERMES_CACHE, hermes_clean_cache)
 
     def _propagate_to_zed(self):
         """Propaga configuración solo a Zed Editor."""
