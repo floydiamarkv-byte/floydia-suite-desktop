@@ -37,10 +37,26 @@ if SCRIPTS_DIR not in sys.path:
 
 class DefaultSkillsHelper:
     DEPRECATED_SERVERS = set()
-    PROTECTED_USER_SKILLS = {"mejora-prompt", "handon-handoff", "harness-workflow", "obsidian-memory-bank"}
+    PROTECTED_USER_SKILLS = {
+        "f-clientes", "f-descripcion", "f-handon-handoff", "f-harness-workflow",
+        "f-mejora-prompt", "f-opti-floydia", "f-opti-notebooklm", "f-update-floydia"
+    }
     SKILL_PRESETS = {
-        "diario": {"name": "⚡ Diario Ultra-Ligero", "badge": "4 Skills", "description": "Handoff + Prompt Optimizer + Harness + Obsidian.", "skills": ["handon-handoff", "mejora-prompt", "harness-workflow", "obsidian-memory-bank"]},
-        "full": {"name": "🚀 Full Agent Suite", "badge": "Todas", "description": "Activa todas las habilidades disponibles.", "skills": []}
+        "diario": {
+            "name": "⚡ Diario Ultra-Ligero",
+            "badge": "4 Skills",
+            "description": "Continuidad, Arnés, Optimización y SRE Governor f-*.",
+            "skills": ["f-handon-handoff", "f-mejora-prompt", "f-harness-workflow", "f-opti-floydia"]
+        },
+        "full": {
+            "name": "🚀 Full Canónica v27",
+            "badge": "8 Skills",
+            "description": "Activa las 8 habilidades especializadas canónicas f-*.",
+            "skills": [
+                "f-clientes", "f-descripcion", "f-handon-handoff", "f-harness-workflow",
+                "f-mejora-prompt", "f-opti-floydia", "f-opti-notebooklm", "f-update-floydia"
+            ]
+        }
     }
     
     @staticmethod
@@ -89,6 +105,10 @@ except ImportError:
 MCP_CONFIG_PATH = os.environ.get("MCP_CONFIG_PATH", os.path.expanduser("~/.gemini/config/mcp_config.json"))
 MCP_BACKUP_PATH = os.path.expanduser("~/.gemini/config/mcp_config.json.bak")
 OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
+ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
+HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
+QODER_CONFIG = os.environ.get("QODER_CONFIG_PATH", os.path.expanduser("~/.qoder/settings.json"))
+DSH_CONFIG = os.path.expanduser("~/.dsh/profiles/web/cordis.patch.yml")
 SKILLS_DIR = os.path.join(WORKSPACE_ROOT, ".agents", "skills")
 SKILLS_ARCHIVE_DIR = os.path.join(SKILLS_DIR, "_archive")
 
@@ -382,6 +402,13 @@ class TabMcpSkills(QWidget):
         self.btn_sync_dsh_mcp.setToolTip("Propaga los servidores MCP activos hacia ~/.dsh/profiles/web/cordis.patch.yml")
         self.btn_sync_dsh_mcp.clicked.connect(lambda: self.sync_mcps_to_dsh(silent=False))
         top_card_lay.addWidget(self.btn_sync_dsh_mcp)
+
+        self.btn_propagate_all_mcps = QPushButton("🚀 Propagación Atómica 1-Clic")
+        self.btn_propagate_all_mcps.setObjectName("SecondaryBtn")
+        self.btn_propagate_all_mcps.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_propagate_all_mcps.setToolTip("Propaga los MCPs activos a todos los agentes: Antigravity, OpenCode, Zed, Hermes, Qoder y DSH")
+        self.btn_propagate_all_mcps.clicked.connect(lambda: self.propagate_mcps_all_agents(silent=False))
+        top_card_lay.addWidget(self.btn_propagate_all_mcps)
 
         self.btn_save_mcp = QPushButton("💾 Guardar y Aplicar")
         self.btn_save_mcp.setObjectName("PrimaryBtn")
@@ -743,22 +770,26 @@ class TabMcpSkills(QWidget):
             f"✅ Perfil '{profile['name']}' cargado en los switches.\nPresiona 'Guardar y Aplicar' para persistir en mcp_config.json."
         )
 
+    def _get_active_mcp_specs(self) -> List[Tuple[str, Dict[str, Any]]]:
+        """Obtiene la lista de tuplas (nombre, spec) de los MCPs actualmente activos."""
+        mcp_servers = self.mcp_config_data.get("mcpServers", {})
+        active = []
+        for name, srv in sorted(mcp_servers.items()):
+            if name in getattr(mcp_profile_selector, "DEPRECATED_SERVERS", set()) or name.startswith("#"):
+                continue
+            cb = self.server_checkboxes.get(name)
+            is_enabled = cb.isChecked() if cb is not None else not srv.get("disabled", False)
+            if is_enabled:
+                active.append((name, srv))
+        return active
+
     def sync_mcps_to_opencode(self, silent: bool = False) -> bool:
-        """Propaga los servidores MCP activos hacia ~/.config/opencode/opencode.jsonc de forma no destructiva."""
+        """Propaga los servidores MCP activos hacia ~/.config/opencode/opencode.jsonc."""
         try:
-            mcp_servers = self.mcp_config_data.get("mcpServers", {})
+            active_servers = self._get_active_mcp_specs()
             opencode_mcp = {}
-            active_count = 0
 
-            for name, srv in mcp_servers.items():
-                if name in getattr(mcp_profile_selector, "DEPRECATED_SERVERS", set()) or name.startswith("#"):
-                    continue
-
-                cb = self.server_checkboxes.get(name)
-                is_enabled = cb.isChecked() if cb is not None else not srv.get("disabled", False)
-                if not is_enabled:
-                    continue
-
+            for name, srv in active_servers:
                 cmd = srv.get("command", "")
                 args = srv.get("args", [])
                 env = srv.get("env", {})
@@ -774,9 +805,7 @@ class TabMcpSkills(QWidget):
                 }
                 if env:
                     entry["environment"] = env
-
                 opencode_mcp[name] = entry
-                active_count += 1
 
             opencode_cfg = {}
             if os.path.exists(OPENCODE_CONFIG):
@@ -789,8 +818,8 @@ class TabMcpSkills(QWidget):
             if not opencode_cfg:
                 opencode_cfg = {
                     "$schema": "https://opencode.ai/config.json",
-                    "model": "google/gemini-3.7-flash",
-                    "small_model": "openrouter/auto"
+                    "model": "deepseek/deepseek-chat",
+                    "small_model": "mistral/ministral-8b-latest"
                 }
 
             opencode_cfg["mcp"] = opencode_mcp
@@ -801,12 +830,128 @@ class TabMcpSkills(QWidget):
                 QMessageBox.information(
                     self,
                     "OpenCode MCP Sincronizado",
-                    f"✅ Sincronizados exitosamente {active_count} servidores MCP activos en OpenCode:\n{OPENCODE_CONFIG}"
+                    f"✅ Sincronizados exitosamente {len(opencode_mcp)} servidores MCP en OpenCode:\n{OPENCODE_CONFIG}"
                 )
             return True
         except Exception as e:
             if not silent:
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con OpenCode: {e}")
+            return False
+
+    def sync_mcps_to_zed(self, silent: bool = False) -> bool:
+        """Propaga los servidores MCP activos hacia ~/.config/zed/settings.json (context_servers)."""
+        try:
+            if not os.path.exists(ZED_CONFIG):
+                return False
+
+            with open(ZED_CONFIG, "r", encoding="utf-8") as f:
+                zed_data = json.load(f)
+
+            ctx_servers = zed_data.setdefault("context_servers", {})
+            active_servers = self._get_active_mcp_specs()
+
+            # Mapear nombres canónicos en Zed
+            new_ctx = {}
+            for name, srv in active_servers:
+                key = "obsidian" if name in ("obsidian-mcp", "obsidian") else name
+                if key == "novamira-mcp":
+                    key = "novamira"
+                entry = {
+                    "command": srv.get("command", ""),
+                    "args": srv.get("args", [])
+                }
+                if key == "stitch":
+                    entry["source"] = "custom"
+                new_ctx[key] = entry
+
+            zed_data["context_servers"] = new_ctx
+            atomic_json_write(ZED_CONFIG, zed_data)
+
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "Zed MCP Sincronizado",
+                    f"✅ Sincronizados exitosamente {len(new_ctx)} context_servers en Zed Editor:\n{ZED_CONFIG}"
+                )
+            return True
+        except Exception as e:
+            if not silent:
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con Zed: {e}")
+            return False
+
+    def sync_mcps_to_hermes(self, silent: bool = False) -> bool:
+        """Propaga los servidores MCP activos hacia ~/.hermes/config.yaml."""
+        try:
+            if not os.path.exists(HERMES_CONFIG):
+                return False
+
+            active_servers = self._get_active_mcp_specs()
+            mcp_block = ["", "# ── Servidores MCP (Sincronizado por Floydia Suite) ──", "mcp_servers:"]
+            for name, srv in active_servers:
+                key = name.replace("-mcp", "")
+                cmd = srv.get("command", "")
+                args = srv.get("args", [])
+                mcp_block.append(f"  {key}:")
+                mcp_block.append(f"    command: {cmd}")
+                if args:
+                    mcp_block.append("    args:")
+                    for a in args:
+                        mcp_block.append(f"      - {a}")
+
+            with open(HERMES_CONFIG, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            if "mcp_servers:" in content:
+                content = content.split("mcp_servers:")[0].rstrip()
+            content = content.rstrip() + "\n" + "\n".join(mcp_block) + "\n"
+
+            with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "Hermes MCP Sincronizado",
+                    f"✅ Sincronizados exitosamente {len(active_servers)} servidores MCP en Hermes:\n{HERMES_CONFIG}"
+                )
+            return True
+        except Exception as e:
+            if not silent:
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con Hermes: {e}")
+            return False
+
+    def sync_mcps_to_qoder(self, silent: bool = False) -> bool:
+        """Propaga los servidores MCP activos hacia ~/.qoder/settings.json."""
+        try:
+            if not os.path.exists(QODER_CONFIG):
+                return False
+
+            with open(QODER_CONFIG, "r", encoding="utf-8") as f:
+                qoder_data = json.load(f)
+
+            active_servers = self._get_active_mcp_specs()
+            new_servers = {}
+            for name, srv in active_servers:
+                entry = {"command": srv.get("command", "")}
+                if srv.get("args"):
+                    entry["args"] = srv.get("args")
+                if srv.get("env"):
+                    entry["env"] = srv.get("env")
+                new_servers[name] = entry
+
+            qoder_data["mcpServers"] = new_servers
+            atomic_json_write(QODER_CONFIG, qoder_data)
+
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "Qoder MCP Sincronizado",
+                    f"✅ Sincronizados exitosamente {len(new_servers)} servidores MCP en Qoder:\n{QODER_CONFIG}"
+                )
+            return True
+        except Exception as e:
+            if not silent:
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con Qoder: {e}")
             return False
 
     def sync_mcps_to_dsh(self, silent: bool = False) -> bool:
@@ -816,7 +961,7 @@ class TabMcpSkills(QWidget):
             if not os.path.exists(os.path.dirname(dsh_patch_path)):
                 return False
 
-            mcp_servers = self.mcp_config_data.get("mcpServers", {})
+            active_servers = self._get_active_mcp_specs()
             ide_internal_mcps = {"notebooks", "visualization", "data-agent-kit"}
             yaml_unsafe = {'@', '#', '!', '&', '*', '{', '}', '[', ']', '|', '>', ',', '?', ':', '-', ' '}
 
@@ -828,14 +973,9 @@ class TabMcpSkills(QWidget):
                 return v
 
             active_entries = []
-            for name, srv in sorted(mcp_servers.items()):
-                if name in ide_internal_mcps or name.startswith("#"):
+            for name, srv in active_servers:
+                if name in ide_internal_mcps:
                     continue
-                cb = self.server_checkboxes.get(name)
-                is_enabled = cb.isChecked() if cb is not None else not srv.get("disabled", False)
-                if not is_enabled:
-                    continue
-
                 cmd = srv.get("command", "")
                 args = srv.get("args", [])
                 env = srv.get("env", {})
@@ -898,6 +1038,40 @@ class TabMcpSkills(QWidget):
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con DSH: {e}")
             return False
 
+    def propagate_mcps_all_agents(self, silent: bool = False) -> Dict[str, bool]:
+        """Propaga atómicamente la configuración activa a todos los agentes soportados."""
+        results = {}
+        # 1. Antigravity IDE
+        if os.path.exists(MCP_CONFIG_PATH):
+            mcp_servers = self.mcp_config_data.get("mcpServers", {})
+            for name, cb in self.server_checkboxes.items():
+                if name in mcp_servers:
+                    mcp_servers[name]["disabled"] = not cb.isChecked()
+            atomic_json_write(MCP_CONFIG_PATH, self.mcp_config_data)
+            results["Antigravity IDE"] = True
+        else:
+            results["Antigravity IDE"] = False
+
+        # 2. Clientes locales
+        results["OpenCode"] = self.sync_mcps_to_opencode(silent=True)
+        results["Zed Editor"] = self.sync_mcps_to_zed(silent=True)
+        results["Hermes"] = self.sync_mcps_to_hermes(silent=True)
+        results["Qoder"] = self.sync_mcps_to_qoder(silent=True)
+        results["DeepSeek Harness"] = self.sync_mcps_to_dsh(silent=True)
+
+        if not silent:
+            active_cnt = sum(1 for cb in self.server_checkboxes.values() if cb.isChecked())
+            status_lines = []
+            for agent, ok in results.items():
+                icon = "✅" if ok else "⚠️"
+                status_lines.append(f"  {icon} {agent}")
+            QMessageBox.information(
+                self,
+                "Propagación Atómica 1-Clic",
+                f"🚀 Propagación de {active_cnt} servidores MCP activos completada:\n\n" + "\n".join(status_lines)
+            )
+        return results
+
     def save_mcp_config(self):
         if not os.path.exists(MCP_CONFIG_PATH):
             return
@@ -912,17 +1086,16 @@ class TabMcpSkills(QWidget):
 
             atomic_json_write(MCP_CONFIG_PATH, self.mcp_config_data)
 
-            # Auto-propagación silenciosa a OpenCode y DeepSeek Harness (DSH)
-            self.sync_mcps_to_opencode(silent=True)
-            self.sync_mcps_to_dsh(silent=True)
+            # Propagación atómica 1-clic a todos los agentes
+            self.propagate_mcps_all_agents(silent=True)
 
             active_cnt = sum(1 for cb in self.server_checkboxes.values() if cb.isChecked())
             QMessageBox.information(
                 self,
-                "Configuración Guardada",
+                "Configuración Guardada y Propagada",
                 f"✅ mcp_config.json actualizado exitosamente.\n\n"
                 f"• MCPs Activos: {active_cnt}\n"
-                f"• Sincronizado con: OpenCode y DeepSeek Harness (DSH)\n"
+                f"• Sincronizado con: Antigravity, OpenCode, Zed, Hermes, Qoder y DSH\n"
                 f"• Backup generado: {MCP_BACKUP_PATH}"
             )
         except Exception as e:

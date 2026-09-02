@@ -33,31 +33,176 @@ import subprocess
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
-        if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
+        if os.path.exists(os.path.join(curr, "SCRIPTS", "restart_nodes_config.json")):
+            return curr
+        if os.path.exists(os.path.join(curr, ".env")) and os.path.exists(os.path.join(curr, "memory-bank")):
             return curr
         curr = os.path.dirname(curr)
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS"
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
-CONFIG_FILE = os.path.join(WORKSPACE_ROOT, "cache", "restart_nodes_config.json")
+SCRIPTS_DIR = os.path.join(WORKSPACE_ROOT, "SCRIPTS")
+if os.path.exists(SCRIPTS_DIR) and SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
+GLOBAL_SCRIPTS = "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS"
+if os.path.exists(GLOBAL_SCRIPTS) and GLOBAL_SCRIPTS not in sys.path:
+    sys.path.insert(0, GLOBAL_SCRIPTS)
+
+def get_config_file_path() -> str:
+    candidates = [
+        os.path.join(SCRIPTS_DIR, "restart_nodes_config.json"),
+        os.path.join(GLOBAL_SCRIPTS, "restart_nodes_config.json"),
+        os.path.join(WORKSPACE_ROOT, "cache", "restart_nodes_config.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "restart_nodes_config.json")
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return candidates[0]
+
+CONFIG_FILE = get_config_file_path()
+
+DEFAULT_NODES: List[Dict[str, Any]] = [
+    {
+        "id": "proxmox",
+        "name": "Servidor Proxmox VE",
+        "subtitle": "Host Proxmox & Contenedores LXC",
+        "icon": "🖥️",
+        "enabled": True,
+        "order": 1,
+        "type": "proxmox",
+        "ip_env_key": "S01_PROXMOX_HOST",
+        "default_ip": "192.168.1.220",
+        "user_env_key": "S01_PROXMOX_USER",
+        "default_user": "root",
+        "pass_env_key": "S01_PROXMOX_PASS_MCP",
+        "check_port": 8006,
+        "timeout": 15,
+        "warning": "⚠️ Afectará CT106 (Vault Obsidian) y CT114 (Servidor Híbrido). Se recomienda verificar antes de reiniciar."
+    },
+    {
+        "id": "hp45",
+        "name": "Laptop HP45 (Secundaria)",
+        "subtitle": "EndeavourOS / Arch Linux",
+        "icon": "💻",
+        "enabled": True,
+        "order": 2,
+        "type": "ssh_linux",
+        "ip_env_key": "S25_HP45_IP",
+        "default_ip": "192.168.1.200",
+        "user_env_key": "S25_HP45_USER",
+        "default_user": "tec",
+        "pass_env_key": "S25_HP45_PASS",
+        "check_port": 22,
+        "timeout": 10,
+        "warning": None
+    },
+    {
+        "id": "mikrotik_ap",
+        "name": "MikroTik AP (RB941)",
+        "subtitle": "Punto de Acceso WiFi MikroTik",
+        "icon": "📡",
+        "enabled": True,
+        "order": 3,
+        "type": "mikrotik",
+        "ip_env_key": "S19_MIKROTIK_RB941_IP",
+        "default_ip": "192.168.1.115",
+        "user_env_key": "S19_MIKROTIK_RB941_USER",
+        "default_user": "admin",
+        "pass_env_key": "S19_MIKROTIK_RB941_PASS",
+        "check_port": 22,
+        "timeout": 8,
+        "warning": None
+    },
+    {
+        "id": "tplink_ap",
+        "name": "TP-Link AP",
+        "subtitle": "Punto de Acceso WiFi TP-Link",
+        "icon": "📶",
+        "enabled": False,
+        "order": 4,
+        "type": "tplink",
+        "ip_env_key": "S20_TPLINK_AP_IP",
+        "default_ip": "192.168.1.210",
+        "user_env_key": "S20_TPLINK_AP_USER",
+        "default_user": "admin",
+        "pass_env_key": "S20_TPLINK_AP_PASS",
+        "check_port": 22,
+        "timeout": 8,
+        "warning": None
+    },
+    {
+        "id": "mikrotik_router",
+        "name": "MikroTik Router (RB750Gr3)",
+        "subtitle": "Router Central de Red (Gateway 192.168.1.1)",
+        "icon": "🌐",
+        "enabled": False,
+        "order": 5,
+        "type": "mikrotik",
+        "ip_env_key": "S19_MIKROTIK_RB750GR3_IP",
+        "default_ip": "192.168.1.1",
+        "user_env_key": "S19_MIKROTIK_RB750GR3_USER",
+        "default_user": "admin",
+        "pass_env_key": "S19_MIKROTIK_RB750GR3_PASS",
+        "check_port": 22,
+        "timeout": 10,
+        "warning": "⚠️ Cortará la conectividad de toda la red durante su reinicio."
+    },
+    {
+        "id": "hp15",
+        "name": "Laptop HP15 (Local)",
+        "subtitle": "Estación Principal Debian (Host Ejecutor)",
+        "icon": "⚡",
+        "enabled": True,
+        "order": 6,
+        "type": "localhost",
+        "ip_env_key": "HP15_IP",
+        "default_ip": "127.0.0.1",
+        "user_env_key": "USER",
+        "default_user": "tec",
+        "pass_env_key": None,
+        "check_port": None,
+        "timeout": 15,
+        "warning": "🚨 Se ejecutará de ÚLTIMO con cuenta regresiva cancelable de 10 segundos."
+    }
+]
 
 class DefaultRebootEngine:
     @staticmethod
     def load_env_safely():
-        env_p = os.path.join(WORKSPACE_ROOT, ".env")
+        env_candidates = [
+            os.path.join(WORKSPACE_ROOT, ".env"),
+            "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/.env",
+            "/home/tec/.secrets/antigravity.env"
+        ]
         res = {}
-        if os.path.exists(env_p):
-            with open(env_p, "r", encoding="utf-8") as f:
-                for line in f:
-                    s = line.strip()
-                    if s and not s.startswith("#") and "=" in s:
-                        p = s.split("=", 1)
-                        res[p[0].strip()] = p[1].strip().strip('"').strip("'")
+        for env_p in env_candidates:
+            if os.path.exists(env_p):
+                try:
+                    with open(env_p, "r", encoding="utf-8") as f:
+                        for line in f:
+                            s = line.strip()
+                            if s and not s.startswith("#") and "=" in s:
+                                p = s.split("=", 1)
+                                k = p[0].strip()
+                                v = p[1].strip().strip('"').strip("'")
+                                if k not in res:
+                                    res[k] = v
+                except Exception:
+                    pass
         return res
 
     @staticmethod
     def get_resolved_node(node, env_map):
-        return dict(node)
+        resolved = dict(node)
+        ip_k = node.get("ip_env_key")
+        resolved["ip"] = env_map.get(ip_k, node.get("default_ip", "127.0.0.1")) if ip_k else node.get("default_ip", "127.0.0.1")
+        user_k = node.get("user_env_key")
+        resolved["user"] = env_map.get(user_k, node.get("default_user", "root")) if user_k else node.get("default_user", "root")
+        pass_k = node.get("pass_env_key")
+        resolved["password"] = env_map.get(pass_k, "") if pass_k else ""
+        return resolved
 
     @staticmethod
     def ping_host_fast(ip, timeout=1.0):
@@ -69,12 +214,25 @@ class DefaultRebootEngine:
             return False
 
     @staticmethod
-    def tcp_port_check(ip, port, timeout=1.0):
+    def check_node_health(node, env_map):
+        resolved = DefaultRebootEngine.get_resolved_node(node, env_map)
+        ip = resolved.get("ip", "127.0.0.1")
+        if ip in ["127.0.0.1", "localhost"]:
+            return {"ping_ok": True, "latency_ms": 0.1, "port_ok": True, "status": "ONLINE", "ip": ip}
         try:
-            with socket.create_connection((str(ip), int(port)), timeout=timeout):
-                return True
+            t0 = time.perf_counter()
+            r = subprocess.run(["ping", "-c", "1", "-W", "1", str(ip)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+            lat = round((time.perf_counter() - t0) * 1000, 1)
+            ok = (r.returncode == 0)
+            return {"ping_ok": ok, "latency_ms": lat if ok else 0, "port_ok": True, "status": "ONLINE" if ok else "OFFLINE", "ip": ip}
         except Exception:
-            return False
+            return {"ping_ok": False, "latency_ms": 0, "port_ok": False, "status": "OFFLINE", "ip": ip}
+
+    @staticmethod
+    def execute_reboot_node(node, env_map, dry_run=False, log_cb=None):
+        if log_cb:
+            log_cb(f"Reinicio simulado: {node.get('name')}", "INFO")
+        return True, "Completado"
 
 try:
     import restart_workspace_engine as engine
@@ -356,14 +514,22 @@ class TabReboot(QWidget):
         self.start_periodic_health_check()
 
     def load_nodes_config(self) -> List[Dict[str, Any]]:
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return sorted(data, key=lambda x: x.get("order", 99))
-            except Exception as e:
-                print(f"[ERROR] No se pudo leer {CONFIG_FILE}: {e}")
-        return []
+        candidates = [
+            CONFIG_FILE,
+            os.path.join(SCRIPTS_DIR, "restart_nodes_config.json"),
+            os.path.join(GLOBAL_SCRIPTS, "restart_nodes_config.json"),
+            os.path.join(WORKSPACE_ROOT, "cache", "restart_nodes_config.json")
+        ]
+        for cfg_path in candidates:
+            if cfg_path and os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, list) and len(data) > 0:
+                            return sorted(data, key=lambda x: x.get("order", 99))
+                except Exception as e:
+                    print(f"[ERROR] No se pudo leer {cfg_path}: {e}")
+        return [dict(n) for n in DEFAULT_NODES]
 
     def save_nodes_config(self):
         for idx, n in enumerate(self.nodes, 1):

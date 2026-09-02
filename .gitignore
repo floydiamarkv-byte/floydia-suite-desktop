@@ -23,6 +23,7 @@ logs/
 *.lock
 *.tmp
 *.bak
+PROMPT_*.md
 
 # IDE & OS
 .vscode/

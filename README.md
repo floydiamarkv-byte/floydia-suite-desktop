@@ -13,50 +13,60 @@
 ## 🌟 Características Principales
 
 ```
- ┌────────────────────────────────────────────────────────────────────────┐
- │                      ⚡ FLOYDIA SUITE (F-SUITE)                        │
- ├───────────────────┬───────────────────┬────────────────────────────────┤
- │ 🛰️ AI Radar       │ 🎛️ MCP & Skills   │ 🔑 Multi-Account API Manager   │
- │   • Live Telemetry│   • Server Cockpit│   • 1-Click Agent Sync         │
- │   • Context Filter│   • OpenCode Sync │   • DeepSeek V3 / R1           │
- │   • TPS & Latency │   • Token Budget  │   • OpenRouter / NVIDIA NIM    │
- ├───────────────────┼───────────────────┼────────────────────────────────┤
- │ ⚡ SRE Governor   │ 📡 Network Diag   │ 🔄 Reboot Hub                  │
- │   • RAM Optimizer │   • Live Probes   │   • Host Services              │
- │   • Action Journal│   • Homelab Health│   • Graceful Lifecycle         │
- └───────────────────┴───────────────────┴────────────────────────────────┘
+ ┌──────────────────────────────────────────────────────────────────────────────────┐
+ │                         ⚡ FLOYDIA SUITE 2.0 (F-SUITE)                           │
+ ├────────────────────┬────────────────────┬────────────────────┬───────────────────┤
+ │ 🛰️ AI Radar        │ 🎛️ MCP & Skills    │ 🔑 Multi-Acc APIs  │ 🧹 SRE Cleaner    │
+ │   • Live Telemetry │   • 6-Agent Sync   │   • 1-Click Sync   │   • BleachBit Eng │
+ │   • Context Filter │   • Server Cockpit │   • DeepSeek V3/R1 │   • Bitwarden Safe│
+ │   • TPS & Latency  │   • Token Budget   │   • Multi-Account  │   • Multi-Profile │
+ ├────────────────────┼────────────────────┼────────────────────┼───────────────────┤
+ │ ⚡ SRE Governor    │ 📡 Network Diag    │ 🔄 Reboot Hub      │ 💾 Atomic State   │
+ │   • RAM Optimizer  │   • Live Probes    │   • Proxmox & APs  │   • fcntl.flock   │
+ │   • Action Journal │   • Homelab Health │   • Graceful Flow  │   • Fast Restore  │
+ └────────────────────┴────────────────────┴────────────────────┴───────────────────┘
 ```
 
 ### 1. 🛰️ AI Radar & Observatorio de Modelos
 * **Sondeo en Vivo Concurrente**: Medición en tiempo real de latencia (ms), TTFT (Time to First Token), TPS (Tokens per Second) y detección de errores de cuota (HTTP 402/429).
 * **Filtro Avanzado de Ventana de Contexto**: Filtra al instante modelos escaneados por tamaño de contexto (`≥ 32k`, `≥ 128k`, `≥ 200k`, `≥ 1M tokens`).
-* **Descargador de Catálogos Globales**: Importación y filtrado inteligente de más de 400 modelos desde OpenRouter, NVIDIA NIM, Google AI Studio y Mistral.
+* **Descargador de Catálogos Globales**: Importación y filtrado inteligente de más de 400 modelos desde OpenRouter, NVIDIA NIM, Google AI Studio, DeepSeek y Mistral.
 * **Exportador Multi-Cuenta DeepSeek**: Diálogo de inspección y exportación directa de flotas DeepSeek V3 / R1 en formato JSON/YAML listo para arneses.
 * **Exportador de Reportes Ejecutivos**: Generación con 1-clic de informes ejecutivos en formato **Markdown (.md)** y **HTML interactivo**.
 * **Módulo Asesor IA Integrado**: Consulta a modelos locales o remotos para analizar la telemetría y recomendar el mejor modelo costo/eficiencia para tu tarea.
 
 ### 2. 🎛️ MCP Cockpit & Skills Studio
 * **Gestor de Servidores MCP**: Control granular de activación y desactivación de servidores Model Context Protocol (`~/.gemini/config/mcp_config.json`).
-* **Sincronización 1-Clic a OpenCode**: Puente determinista que propaga los servidores MCP activos hacia `~/.config/opencode/opencode.jsonc`.
-* **Sincronización Automática a DeepSeek Harness (DSH)**: Genera y actualiza dinámicamente `~/.dsh/profiles/web/cordis.patch.yml` asegurando que DSH ejecute únicamente los MCPs autorizados en la suite.
+* **Propagación Atómica 1-Clic a Todos los Agentes**: Puente determinista que propaga simultáneamente los servidores MCP activos hacia:
+  * **Antigravity IDE**: `~/.gemini/config/mcp_config.json`
+  * **OpenCode**: `~/.config/opencode/opencode.jsonc`
+  * **Zed Editor**: `~/.config/zed/settings.json` (context_servers)
+  * **Hermes Agent**: `~/.hermes/config.yaml`
+  * **Qoder**: `~/.qoder/settings.json`
+  * **DeepSeek Harness (DSH)**: `~/.dsh/profiles/web/cordis.patch.yml`
 * **Presupuesto de Tokens de Skills**: Monitoreo visual de skills de agentes activos para asegurar un consumo óptimo (<700 tokens).
 
 ### 3. 🔑 API Manager & Propagación Multi-Cuenta
 * **Taxonomía Multi-Cuenta [C1..C8]**: Gestión centralizada de cuentas principales, secundarias y de respaldo para Google AI Studio, OpenRouter, DeepSeek, NVIDIA NIM y Mistral.
-* **Propagación 1-Clic a Agentes**: Generación determinista y atómica de configuraciones para:
-  * **OpenCode**: `~/.config/opencode/opencode.jsonc` (preservando configuración MCP).
-  * **DeepSeek Harness (DSH)**: `~/.dsh/profiles/web/cordis.patch.yml` y variables de entorno.
-  * **Hermes Agent**: `~/.hermes/config.yaml` y curación de caché de modelos.
-  * **Zed Editor**: `~/.config/zed/settings.json`.
-  * **Nodo Remoto / Homelab**: Script de réplica `rsync` configurable.
-* **Soporte Completo DeepSeek**: Mapeo directo de `deepseek-chat` (V3) y `deepseek-reasoner` (R1) con fallbacks automáticos.
+* **Propagación 1-Clic a Agentes**: Generación determinista y atómica de configuraciones con whitelists y control de modelos habilitados para OpenCode, Hermes, Zed y DSH.
+* **Soporte Completo DeepSeek**: Mapeo directo de `deepseek-chat` (V3) y `deepseek-reasoner` (R1) con soporte para streams de `reasoning_content` y fallbacks automáticos.
 
-### 4. ⚡ SRE Governor & Optimización del Sistema
+### 4. 🧹 SRE BleachBit Cleaner — Limpieza Segura Multi-Perfil
+* **Motor de Limpieza BleachBit**: Limpieza modular con modos Previsualización (Dry-Run) y Ejecución Real.
+* **Allowlist Inmutable de Seguridad**: Blindaje absoluto contra borrado accidental de bóvedas de **Bitwarden** (`nngceckbapebfimnlniiiahkandclblb`), extensiones de navegador y credenciales maestras.
+* **Soporte Multi-Navegador**: Limpieza profunda de cachés, IndexedDB, GPUCache y Service Workers para Chromium, Chrome, Brave, Edge y Vivaldi preservando sesiones activas.
+* **Optimización de Sistema**: Limpieza segura de cachés de paquetes (`pacman`/`apt`), logs huérfanos de systemd y temporales de usuario.
+
+### 5. ⚡ SRE Governor & Optimización de Memoria
 * **Monitor de Recursos en Vivo**: Telemetría continua de CPU, memoria RAM, SWAP y carga del sistema.
 * **Acciones de Optimización**: Liberación segura de PageCache/dentries, purga de procesos zombies y ajuste de perfiles de rendimiento.
 * **Action Journal**: Registro de auditoría JSONL estructurado con marcas de tiempo y métricas de duración.
 
-### 5. 📡 Diagnóstico de Red y Conectividad
+### 6. 🔄 Control de Infraestructura & Reboot Hub
+* **Orquestación de Nodos Homelab**: Monitor de salud y reinicio ordenado de Proxmox VE, Puntos de Acceso MikroTik, Routers y Hosts locales.
+* **Reinicio Seguro con Cuenta Regresiva**: Ventanas de confirmación y temporizador cancelable de 10 segundos para el host principal.
+
+### 7. 📡 Diagnóstico de Red y Conectividad
 * **Probes Concurrentes en Paralelo (`ThreadPoolExecutor`)**: Monitoreo multihilo ultrarrápido de latencias hacia Gateway local, nodos Proxmox/Homelab y DNS WAN (Cloudflare, Google).
 
 ---

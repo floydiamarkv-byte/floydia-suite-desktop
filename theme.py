@@ -70,6 +70,16 @@ COLOR_PROV_ZAI = "#6366F1"          # Índigo Z.AI
 COLOR_PROV_ANTHROPIC = "#F97316"    # Naranja cálido Claude
 COLOR_PROV_OPENAI = "#22C55E"       # Verde OpenAI
 COLOR_PROV_OLLAMA = "#94A3B8"       # Pizarra Homelab
+COLOR_PROV_CLOUDFLARE = "#F38020"   # Naranja Cloudflare
+COLOR_PROV_BAI = "#3B82F6"          # Azul B.AI
+COLOR_PROV_TOKENROUTER = "#8B5CF6"  # Violeta TokenRouter
+COLOR_PROV_ZENMUX = "#EC4899"       # Rosa ZenMux
+COLOR_PROV_SEEKAI = "#06B6D4"       # Cian SeekAI
+COLOR_PROV_GOROUTER = "#10B981"     # Esmeralda GoRouter
+COLOR_PROV_JUSTWORKER = "#6366F1"   # Índigo JustWorker
+COLOR_PROV_FIREWORKS = "#E11D48"    # Carmesí Fireworks
+COLOR_PROV_DASHSCOPE = "#FF6A00"    # Naranja Alibaba
+COLOR_PROV_KIMI = "#0EA5E9"         # Azul Kimi Moonshot
 COLOR_PROV_CUSTOM = "#CBD5E1"       # Gris claro Custom
 
 PROVIDER_COLORS = {
@@ -84,6 +94,21 @@ PROVIDER_COLORS = {
     "anthropic": COLOR_PROV_ANTHROPIC,
     "openai": COLOR_PROV_OPENAI,
     "ollama": COLOR_PROV_OLLAMA,
+    "cloudflare": COLOR_PROV_CLOUDFLARE,
+    "b_ai": COLOR_PROV_BAI,
+    "bai": COLOR_PROV_BAI,
+    "tokenrouter": COLOR_PROV_TOKENROUTER,
+    "zenmux": COLOR_PROV_ZENMUX,
+    "seekai": COLOR_PROV_SEEKAI,
+    "gorouter": COLOR_PROV_GOROUTER,
+    "justworker": COLOR_PROV_JUSTWORKER,
+    "fireworks": COLOR_PROV_FIREWORKS,
+    "dashscope": COLOR_PROV_DASHSCOPE,
+    "alibaba": COLOR_PROV_DASHSCOPE,
+    "kimi": COLOR_PROV_KIMI,
+    "moonshot": COLOR_PROV_KIMI,
+    "airforce": "#14B8A6",
+    "deepgram": "#10B981",
     "custom": COLOR_PROV_CUSTOM
 }
 

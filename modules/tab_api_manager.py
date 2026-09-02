@@ -60,20 +60,28 @@ EXPORT_REMOTE_KEYS_SCRIPT = os.path.join(CACHE_DIR, "export_remote_keys.sh")
 def load_env_vars() -> Dict[str, str]:
     """Lee el archivo .env sin exponer secretos en logs."""
     env_vars = {}
-    if os.path.exists(ENV_FILE):
-        try:
-            with open(ENV_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        k = k.strip()
-                        v = v.strip().strip("'").strip('"')
-                        if " #" in v:
-                            v = v.split(" #", 1)[0].strip()
-                        env_vars[k] = v
-        except Exception:
-            pass
+    candidates = [
+        ENV_FILE,
+        "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/.env",
+        "/home/tec/.secrets/antigravity.env",
+        os.path.join(WORKSPACE_ROOT, ".env")
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip("'").strip('"')
+                            if " #" in v:
+                                v = v.split(" #", 1)[0].strip()
+                            if k not in env_vars:
+                                env_vars[k] = v
+            except Exception:
+                pass
     return env_vars
 
 
@@ -86,27 +94,38 @@ def sanitize_api_for_disk(api: Dict[str, Any]) -> Dict[str, Any]:
     return c
 
 
-def atomic_json_write(path: str, data: Any) -> None:
-    """Escritura atómica thread-safe con flock y archivo temporal."""
-    parent = os.path.dirname(os.path.abspath(path))
+def atomic_json_write(path: str, data: Any, mode: int = 0o600) -> None:
+    """Escritura atómica, durable (fsync archivo y directorio) y protegida con fcntl.flock."""
+    import tempfile
+    path = os.path.abspath(path)
+    parent = os.path.dirname(path)
     os.makedirs(parent, exist_ok=True)
-    temp_path = f"{path}.{os.getpid()}.tmp"
     lock_path = f"{path}.lock"
+
+    fd, temp_path = tempfile.mkstemp(dir=parent, prefix=".tmp-", suffix=".json")
     try:
-        with open(lock_path, "w", encoding="utf-8") as lock_file:
+        with open(lock_path, "a", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            except Exception:
-                pass
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_path, path)
-            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                try:
+                    os.chmod(temp_path, mode)
+                except Exception:
+                    pass
+                os.replace(temp_path, path)
+                try:
+                    dir_fd = os.open(parent, os.O_DIRECTORY)
+                    try:
+                        os.fsync(dir_fd)
+                    finally:
+                        os.close(dir_fd)
+                except Exception:
+                    pass
+            finally:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
     finally:
         if os.path.exists(temp_path):
             try:
@@ -117,7 +136,7 @@ def atomic_json_write(path: str, data: Any) -> None:
 
 # Flota Inicial Canónica Multi-Cuenta [C1..C8]
 DEFAULT_APIS: List[Dict[str, Any]] = [
-    # ── Google AI Studio Multi-Cuenta (C1..C6) ──
+    # ── Google AI Studio [C1 Exclusivo: eliutec.aux.ia1@gmail.com — ToS Anti-Baneo] ──
     {
         "id": "google_c1",
         "name": "Google AI Studio Pro [C1]",
@@ -129,33 +148,7 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "test_model": "gemini-3.7-flash",
         "auth_type": "Bearer",
         "enabled": True,
-        "notes": "Cuenta Principal: Gemini 3.7 Flash, 3.6, 3.5 y Gemma 4 (1M tokens)."
-    },
-    {
-        "id": "google_c2",
-        "name": "Google AI Studio [C2]",
-        "provider": "google",
-        "account_tag": "C2",
-        "env_key": "C2_GOOGLE_AISTUDIO",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "api_key": "",
-        "test_model": "gemini-3.7-flash",
-        "auth_type": "Bearer",
-        "enabled": True,
-        "notes": "Cuenta Secundaria Google: Balance de carga y fallback."
-    },
-    {
-        "id": "google_c3",
-        "name": "Google AI Studio [C3]",
-        "provider": "google",
-        "account_tag": "C3",
-        "env_key": "C3_GOOGLE_AISTUDIO",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "api_key": "",
-        "test_model": "gemini-3.7-flash",
-        "auth_type": "Bearer",
-        "enabled": False,
-        "notes": "Cuenta Reserva Google C3."
+        "notes": "Cuenta Principal Oficial: Gemini 3.7 Flash, 3.6, 3.5 y Gemma 4 (1M tokens). Blindaje ToS activo."
     },
 
     # ── NVIDIA NIM Multi-Cuenta (C1, C2, C7) ──
@@ -277,7 +270,7 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "env_key": "C7_OPENROUTER",
         "base_url": "https://openrouter.ai/api/v1",
         "api_key": "",
-        "test_model": "openrouter/auto",
+        "test_model": "openrouter/free",
         "auth_type": "Bearer",
         "enabled": True,
         "notes": "Enrutamiento universal a +390 LLMs (Free Tier y Frontier)."
@@ -290,10 +283,10 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "env_key": "C1_OPENROUTER",
         "base_url": "https://openrouter.ai/api/v1",
         "api_key": "",
-        "test_model": "openrouter/auto",
+        "test_model": "openrouter/free",
         "auth_type": "Bearer",
         "enabled": True,
-        "notes": "Cuenta C1 OpenRouter para agentes y scripts."
+        "notes": "Cuenta C1 OpenRouter para agentes y scripts (Fallback gratuito :free)."
     },
 
     # ── Groq Cloud Multi-Cuenta (C1..C6) ──
@@ -352,6 +345,138 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "auth_type": "x-api-key",
         "enabled": False,
         "notes": "Modelos Claude 3.5 Sonnet / Haiku."
+    },
+
+    # ── Cuenta 7: floydiamarkv@gmail.com (Master Account) — Nuevos Proveedores & Gateways ──
+    {
+        "id": "cloudflare_c7",
+        "name": "Cloudflare Workers AI [C7]",
+        "provider": "cloudflare",
+        "account_tag": "C7",
+        "env_key": "C7_CLOUDFLARE",
+        "base_url": "https://api.cloudflare.com/client/v4/user/tokens/verify",
+        "api_key": "",
+        "test_model": "@cf/qwen/qwen3-30b-a3b-fp8",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Token de inferencia Cloudflare Workers AI verificado y activo."
+    },
+    {
+        "id": "b_ai_c7",
+        "name": "B.AI Gateway Hub [C7]",
+        "provider": "b_ai",
+        "account_tag": "C7",
+        "env_key": "C7_B_AI_API",
+        "base_url": "https://api.b.ai/v1",
+        "api_key": "",
+        "test_model": "minimax-m3",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Gateway B.AI multi-modelo (44 LLMs integrados)."
+    },
+    {
+        "id": "tokenrouter_c7",
+        "name": "TokenRouter AI Hub [C7]",
+        "provider": "tokenrouter",
+        "account_tag": "C7",
+        "env_key": "C7_TOKENROUTER_API",
+        "base_url": "https://api.tokenrouter.com/v1",
+        "api_key": "",
+        "test_model": "openai/gpt-5.4-nano",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Gateway TokenRouter (131 modelos multicloud)."
+    },
+    {
+        "id": "zenmux_c7",
+        "name": "ZenMux AI Hub [C7]",
+        "provider": "zenmux",
+        "account_tag": "C7",
+        "env_key": "C7_ZENMUX_API",
+        "base_url": "https://zenmux.ai/api/v1",
+        "api_key": "",
+        "test_model": "qwen/qwen3.8-flash",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Hub ZenMux (162 modelos disponibles)."
+    },
+    {
+        "id": "dashscope_c7",
+        "name": "Alibaba DashScope / Qwen [C7]",
+        "provider": "dashscope",
+        "account_tag": "C7",
+        "env_key": "C7_DASHSCOPE_API_KEY",
+        "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "api_key": "",
+        "test_model": "qwen-plus",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Alibaba Cloud DashScope para modelos Qwen."
+    },
+    {
+        "id": "fireworks_c7",
+        "name": "Fireworks AI Inference [C7]",
+        "provider": "fireworks",
+        "account_tag": "C7",
+        "env_key": "C7_FIREWORKS_API_KEY",
+        "base_url": "https://api.fireworks.ai/inference/v1",
+        "api_key": "",
+        "test_model": "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Inferencia acelerada Fireworks AI."
+    },
+    {
+        "id": "seekai_c7",
+        "name": "SeekAI LLM Hub [C7]",
+        "provider": "seekai",
+        "account_tag": "C7",
+        "env_key": "C7_SEEKAI_API",
+        "base_url": "https://seekai.cc/v1",
+        "api_key": "",
+        "test_model": "default",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Gateway SeekAI para modelos OpenAI compatibles."
+    },
+    {
+        "id": "gorouter_c7",
+        "name": "GoRouter AI Hub [C7]",
+        "provider": "gorouter",
+        "account_tag": "C7",
+        "env_key": "C7_GOROUTER_API",
+        "base_url": "https://api.gorouter.cc/v1",
+        "api_key": "",
+        "test_model": "default",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Gateway GoRouter."
+    },
+    {
+        "id": "justworker_c7",
+        "name": "JustWorker AI [C7]",
+        "provider": "justworker",
+        "account_tag": "C7",
+        "env_key": "C7_JUSTWORKER_API",
+        "base_url": "https://api.justwoker.icu/v1",
+        "api_key": "",
+        "test_model": "default",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Gateway JustWorker."
+    },
+    {
+        "id": "kimi_c7",
+        "name": "Kimi Moonshot Platform [C7]",
+        "provider": "kimi",
+        "account_tag": "C7",
+        "env_key": "C7_KIMI_PLATFORM_API",
+        "base_url": "https://api.moonshot.cn/v1",
+        "api_key": "",
+        "test_model": "moonshot-v1-8k",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Plataforma oficial Moonshot AI (Kimi K3)."
     }
 ]
 
@@ -393,11 +518,49 @@ class ApiPingWorker(CancellableThread):
             name = api.get("name", api_id)
             base_url = api.get("base_url", "").rstrip("/")
             api_key = api.get("api_key", "").strip()
+            env_key = api.get("env_key", "").strip()
             auth_type = api.get("auth_type", "Bearer")
             test_model = api.get("test_model", "default")
+            prov = api.get("provider", "custom")
+
+            if not api_key and env_key:
+                env_map = load_env_vars()
+                api_key = env_map.get(env_key, "").strip() or os.environ.get(env_key, "").strip()
 
             if not base_url:
                 res = {"status": "ERROR_URL", "latency_ms": 0, "message": "URL no configurada"}
+                self.api_tested.emit(api_id, res)
+                continue
+
+            if not api_key:
+                res = {"status": "SIN_KEY", "latency_ms": 0, "message": "Sin API Key configurada"}
+                self.log_signal.emit(f"  ⚪ {name}: Sin API Key ({env_key or 'manual'})")
+                self.api_tested.emit(api_id, res)
+                continue
+
+            # Verificación especial de Cloudflare API Tokens
+            if "tokens/verify" in base_url or base_url.endswith("/verify") or prov == "cloudflare":
+                url = base_url if "verify" in base_url else "https://api.cloudflare.com/client/v4/user/tokens/verify"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "User-Agent": "FloydiaSuite/2.0-ApiManager"
+                }
+                t0 = time.monotonic()
+                try:
+                    req = urllib.request.Request(url, headers=headers, method="GET")
+                    with urllib.request.urlopen(req, timeout=12) as resp:
+                        lat = int((time.monotonic() - t0) * 1000)
+                        body_data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                        if body_data.get("success"):
+                            res = {"status": "200_OK", "latency_ms": lat, "message": f"Token Cloudflare Válido y Activo ({lat}ms)"}
+                            self.log_signal.emit(f"  🟢 {name}: 200 OK Token Activo ({lat} ms)")
+                        else:
+                            res = {"status": "HTTP_401", "latency_ms": lat, "message": "Token no válido"}
+                            self.log_signal.emit(f"  🔴 {name}: Token no válido ({lat} ms)")
+                except Exception as e:
+                    lat = int((time.monotonic() - t0) * 1000)
+                    res = {"status": "AUTH_ERR", "latency_ms": lat, "message": f"Error autenticación: {str(e)[:30]}"}
+                    self.log_signal.emit(f"  🔴 {name}: {res['message']} ({lat} ms)")
                 self.api_tested.emit(api_id, res)
                 continue
 
@@ -422,7 +585,7 @@ class ApiPingWorker(CancellableThread):
             t0 = time.monotonic()
             try:
                 req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=6) as resp:
+                with urllib.request.urlopen(req, timeout=12) as resp:
                     lat = int((time.monotonic() - t0) * 1000)
                     if resp.status == 200:
                         res = {"status": "200_OK", "latency_ms": lat, "message": f"Conexión exitosa ({lat}ms)"}
@@ -432,8 +595,19 @@ class ApiPingWorker(CancellableThread):
                         self.log_signal.emit(f"  🟡 {name}: HTTP {resp.status} ({lat} ms)")
             except urllib.error.HTTPError as e:
                 lat = int((time.monotonic() - t0) * 1000)
-                if e.code == 429:
-                    res = {"status": "429_LIMIT", "latency_ms": lat, "message": "Rate limit / Cuota"}
+                err_body = ""
+                try:
+                    err_body = e.read(4096).decode("utf-8", errors="ignore").lower()
+                except Exception:
+                    pass
+
+                if e.code == 402 or "insufficient credits" in err_body or "requires credits" in err_body:
+                    res = {"status": "NO_CREDITS", "latency_ms": lat, "message": "Sin saldo / 402"}
+                elif e.code == 429:
+                    if "insufficient credits" in err_body or "credit" in err_body:
+                        res = {"status": "NO_CREDITS", "latency_ms": lat, "message": "Sin saldo en cuenta (429)"}
+                    else:
+                        res = {"status": "429_LIMIT", "latency_ms": lat, "message": "Rate limit / Cuota"}
                 elif e.code in (401, 403):
                     res = {"status": "AUTH_ERR", "latency_ms": lat, "message": f"Clave Inválida / Error {e.code}"}
                 elif e.code == 404:
@@ -497,10 +671,10 @@ class PropagateAllWorker(CancellableThread):
                 # Identificador único de proveedor en OpenCode
                 prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
 
-                npm_pkg = "@ai-sdk/openai"
+                npm_pkg = "@ai-sdk/openai-compatible"
                 if prov == "google":
                     npm_pkg = "@ai-sdk/google"
-                elif prov == "mistral":
+                elif prov == "mistral" and acc_tag in ("C1", "Principal", ""):
                     npm_pkg = "@ai-sdk/mistral"
 
                 opts = {}
@@ -512,49 +686,85 @@ class PropagateAllWorker(CancellableThread):
                 badge = get_account_badge_label(acc_tag)
                 
                 # Construir mapa de modelos enriquecido por proveedor
-                models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
-                if prov == "deepseek":
-                    models_dict["deepseek-chat"] = {"name": f"{badge} DeepSeek Chat V3"}
-                    models_dict["deepseek-reasoner"] = {"name": f"{badge} DeepSeek Reasoner R1"}
-                    models_dict["deepseek-v4-flash"] = {"name": f"{badge} DeepSeek V4 Flash"}
+                if prov == "google":
+                    models_dict = {
+                        "gemini-3.7-flash": {"name": f"{badge} Gemini 3.7 Flash Reasoning"},
+                        "gemini-3.6-flash": {"name": f"{badge} Gemini 3.6 Flash Fast"},
+                        "gemini-3.5-flash": {"name": f"{badge} Gemini 3.5 Flash Multimodal"},
+                        "gemma-4-31b-it": {"name": f"{badge} Gemma 4 31B Instruct"}
+                    }
+                elif prov == "deepseek":
+                    t_low = acc_tag.lower()
+                    if t_low not in ("c1", "principal", ""):
+                        models_dict = {
+                            f"deepseek-chat-{t_low}": {"name": f"{badge} DeepSeek Chat V3", "id": "deepseek-chat"},
+                            f"deepseek-reasoner-{t_low}": {"name": f"{badge} DeepSeek Reasoner R1", "id": "deepseek-reasoner"}
+                        }
+                    else:
+                        models_dict = {
+                            "deepseek-chat": {"name": f"{badge} DeepSeek Chat V3"},
+                            "deepseek-reasoner": {"name": f"{badge} DeepSeek Reasoner R1"}
+                        }
+                elif prov == "nvidia":
+                    models_dict = {
+                        "deepseek-ai/deepseek-v4-flash-0731": {"name": f"{badge} DeepSeek V4 Flash (NIM)"},
+                        "moonshotai/kimi-k3": {"name": f"{badge} Kimi K3 Frontier (NIM)"},
+                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {"name": f"{badge} Nemotron 3 Nano NIM"}
+                    }
+                elif prov == "mistral":
+                    t_low = acc_tag.lower()
+                    if t_low not in ("c1", "principal", ""):
+                        models_dict = {
+                            f"codestral-latest-{t_low}": {"name": f"{badge} Mistral Codestral Latest", "id": "codestral-latest"}
+                        }
+                    else:
+                        models_dict = {
+                            "codestral-latest": {"name": f"{badge} Mistral Codestral Latest"}
+                        }
                 elif prov == "openrouter":
                     models_dict = {
                         "openrouter/auto": {"name": f"{badge} OpenRouter Auto"},
                         "openrouter/free": {"name": f"{badge} OpenRouter Free"},
-                        "meta-llama/llama-3.3-70b-instruct:free": {"name": f"{badge} Llama 3.3 70B (Free)"},
-                        "qwen/qwen-2.5-coder-32b-instruct:free": {"name": f"{badge} Qwen 2.5 Coder (Free)"},
-                        "deepseek/deepseek-r1:free": {"name": f"{badge} DeepSeek R1 (Free)"},
-                        "google/gemini-2.0-flash-exp:free": {"name": f"{badge} Gemini 2.0 Flash (Free)"},
-                        "minimax/minimax-m3:free": {"name": f"{badge} MiniMax M3 (Frontier)"},
-                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} Nemotron 3 Nano"},
-                        "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 (Frontier)"},
-                        "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 (Code)"}
+                        "minimax/minimax-m3:free": {"name": f"{badge} MiniMax M3 Frontier"},
+                        "nvidia/nemotron-3-super-120b-a12b:free": {"name": f"{badge} Nemotron 3 Super 120B"},
+                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} Nemotron 3 Nano Reasoning"},
+                        "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 Frontier"},
+                        "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 Code"}
                     }
+                else:
+                    models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
 
                 # Identificador único de proveedor en OpenCode
                 prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in opencode_providers else f"{prov}_{acc_tag.lower()}"
 
-                opencode_providers[prov_key] = {
+                BUILTIN_PROVIDERS = {"google", "openrouter", "mistral", "nvidia", "groq", "deepseek"}
+                is_builtin = prov_key in BUILTIN_PROVIDERS
+
+                p_entry = {
                     "npm": npm_pkg,
                     "name": f"{badge} {api.get('name', prov)}",
                     "options": opts,
                     "models": models_dict
                 }
-                # Garantizar siempre el proveedor canónico primario (openrouter, google, deepseek, mistral, nvidia)
-                if prov not in opencode_providers:
-                    opencode_providers[prov] = {
-                        "npm": npm_pkg,
-                        "name": f"{prov.capitalize()} Fleet [Primary]",
-                        "options": dict(opts),
-                        "models": dict(models_dict)
-                    }
-                else:
-                    opencode_providers[prov]["models"].update(models_dict)
+                if is_builtin:
+                    p_entry["whitelist"] = list(models_dict.keys())
+                opencode_providers[prov_key] = p_entry
+
+            ALL_KNOWN_NATIVE_PROVIDERS = [
+                "alibaba", "aliyun", "amazon-bedrock", "anthropic", "azure", "bai",
+                "bedrock", "cerebras", "cloudflare", "cohere", "fireworks",
+                "github-copilot", "lmstudio", "moonshotai", "ollama", "openai",
+                "perplexity", "replicate", "tabitoken", "together", "upstage",
+                "vertex", "vllm", "voyage", "xai", "zen"
+            ]
+            disabled_providers = [p for p in ALL_KNOWN_NATIVE_PROVIDERS if p not in opencode_providers]
 
             opencode_cfg = {
                 "$schema": "https://opencode.ai/config.json",
                 "model": "google/gemini-3.7-flash",
                 "small_model": "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+                "disabled_providers": disabled_providers,
+                "enabled_providers": list(opencode_providers.keys()),
                 "provider": opencode_providers
             }
             if existing_mcp:
@@ -582,15 +792,21 @@ class PropagateAllWorker(CancellableThread):
                 tm = api.get("test_model", "default")
                 prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in hermes_providers else f"{prov}_{acc_tag.lower()}"
 
-                if prov == "deepseek":
-                    model_list = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]
+                if prov == "google":
+                    model_list = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]
+                elif prov == "deepseek":
+                    model_list = ["deepseek-chat", "deepseek-reasoner"]
+                elif prov == "nvidia":
+                    model_list = ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]
+                elif prov == "mistral":
+                    model_list = ["codestral-latest"]
                 elif prov == "openrouter":
                     model_list = [
-                        "openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free",
+                        "openrouter/auto", "openrouter/free", "minimax/minimax-m3:free",
+                        "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+                        "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free", "meta-llama/llama-3.3-70b-instruct:free",
                         "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free",
-                        "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free",
-                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free",
-                        "poolside/laguna-s-2.1:free"
+                        "google/gemini-2.0-flash-exp:free"
                     ]
                 else:
                     model_list = [tm]
@@ -805,6 +1021,16 @@ class ApiEditDialog(QDialog):
             "Anthropic Claude (anthropic)",
             "OpenAI Direct (openai)",
             "Ollama Local (ollama)",
+            "Cloudflare Workers AI (cloudflare)",
+            "B.AI Gateway (b_ai)",
+            "TokenRouter Hub (tokenrouter)",
+            "ZenMux AI (zenmux)",
+            "Alibaba DashScope / Qwen (dashscope)",
+            "Fireworks AI (fireworks)",
+            "SeekAI Hub (seekai)",
+            "GoRouter Hub (gorouter)",
+            "JustWorker AI (justworker)",
+            "Kimi Moonshot (kimi)",
             "Personalizado / Custom (custom)"
         ])
         self.combo_provider.currentIndexChanged.connect(self.on_preset_or_account_changed)
@@ -930,6 +1156,16 @@ class ApiEditDialog(QDialog):
                 "anthropic": ("Anthropic Claude API", "ANTHROPIC_API_KEY", "https://api.anthropic.com/v1", "claude-3-5-sonnet-20241022", "x-api-key"),
                 "openai": ("OpenAI Direct API", "OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o-mini", "Bearer"),
                 "ollama": ("Ollama Local Homelab", f"{tag}_OLLAMA", "http://localhost:11434/v1", "llama3.2:3b", "None"),
+                "cloudflare": ("Cloudflare Workers AI", f"{tag}_CLOUDFLARE" if tag == "C7" else "CLOUDFLARE_API_TOKEN", "https://api.cloudflare.com/client/v4/user/tokens/verify", "@cf/qwen/qwen3-30b-a3b-fp8", "Bearer"),
+                "b_ai": ("B.AI Gateway Hub", f"{tag}_B_AI_API", "https://api.b.ai/v1", "minimax-m3", "Bearer"),
+                "tokenrouter": ("TokenRouter AI Hub", f"{tag}_TOKENROUTER_API", "https://api.tokenrouter.com/v1", "openai/gpt-5.4-nano", "Bearer"),
+                "zenmux": ("ZenMux AI Hub", f"{tag}_ZENMUX_API", "https://zenmux.ai/api/v1", "qwen/qwen3.8-flash", "Bearer"),
+                "dashscope": ("Alibaba DashScope / Qwen", f"{tag}_DASHSCOPE_API_KEY", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus", "Bearer"),
+                "fireworks": ("Fireworks AI Inference", f"{tag}_FIREWORKS_API_KEY", "https://api.fireworks.ai/inference/v1", "accounts/fireworks/models/llama-v3p1-8b-instruct", "Bearer"),
+                "seekai": ("SeekAI LLM Hub", f"{tag}_SEEKAI_API", "https://seekai.cc/v1", "default", "Bearer"),
+                "gorouter": ("GoRouter AI Hub", f"{tag}_GOROUTER_API", "https://api.gorouter.cc/v1", "default", "Bearer"),
+                "justworker": ("JustWorker AI", f"{tag}_JUSTWORKER_API", "https://api.justwoker.icu/v1", "default", "Bearer"),
+                "kimi": ("Kimi Moonshot Platform", f"{tag}_KIMI_PLATFORM_API", "https://api.moonshot.cn/v1", "moonshot-v1-8k", "Bearer"),
             }
             if prov in presets:
                 name_base, env_k, url, model, auth = presets[prov]
@@ -1780,10 +2016,10 @@ class TabApiManager(QWidget):
             test_m = api.get("test_model", "default")
             prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
 
-            npm_pkg = "@ai-sdk/openai"
+            npm_pkg = "@ai-sdk/openai-compatible"
             if prov == "google":
                 npm_pkg = "@ai-sdk/google"
-            elif prov == "mistral":
+            elif prov == "mistral" and acc_tag in ("C1", "Principal", ""):
                 npm_pkg = "@ai-sdk/mistral"
 
             opts = {}
@@ -1793,48 +2029,84 @@ class TabApiManager(QWidget):
                 opts["apiKey"] = f"{{env:{env_k}}}"
 
             badge = get_account_badge_label(acc_tag)
-            models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
-            if prov == "deepseek":
-                models_dict["deepseek-chat"] = {"name": f"{badge} DeepSeek Chat V3"}
-                models_dict["deepseek-reasoner"] = {"name": f"{badge} DeepSeek Reasoner R1"}
-                models_dict["deepseek-v4-flash"] = {"name": f"{badge} DeepSeek V4 Flash"}
+            if prov == "google":
+                models_dict = {
+                    "gemini-3.7-flash": {"name": f"{badge} Gemini 3.7 Flash Reasoning"},
+                    "gemini-3.6-flash": {"name": f"{badge} Gemini 3.6 Flash Fast"},
+                    "gemini-3.5-flash": {"name": f"{badge} Gemini 3.5 Flash Multimodal"},
+                    "gemma-4-31b-it": {"name": f"{badge} Gemma 4 31B Instruct"}
+                }
+            elif prov == "deepseek":
+                t_low = acc_tag.lower()
+                if t_low not in ("c1", "principal", ""):
+                    models_dict = {
+                        f"deepseek-chat-{t_low}": {"name": f"{badge} DeepSeek Chat V3", "id": "deepseek-chat"},
+                        f"deepseek-reasoner-{t_low}": {"name": f"{badge} DeepSeek Reasoner R1", "id": "deepseek-reasoner"}
+                    }
+                else:
+                    models_dict = {
+                        "deepseek-chat": {"name": f"{badge} DeepSeek Chat V3"},
+                        "deepseek-reasoner": {"name": f"{badge} DeepSeek Reasoner R1"}
+                    }
+            elif prov == "nvidia":
+                models_dict = {
+                    "deepseek-ai/deepseek-v4-flash-0731": {"name": f"{badge} DeepSeek V4 Flash (NIM)"},
+                    "moonshotai/kimi-k3": {"name": f"{badge} Kimi K3 Frontier (NIM)"},
+                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {"name": f"{badge} Nemotron 3 Nano NIM"}
+                }
+            elif prov == "mistral":
+                t_low = acc_tag.lower()
+                if t_low not in ("c1", "principal", ""):
+                    models_dict = {
+                        f"codestral-latest-{t_low}": {"name": f"{badge} Mistral Codestral Latest", "id": "codestral-latest"}
+                    }
+                else:
+                    models_dict = {
+                        "codestral-latest": {"name": f"{badge} Mistral Codestral Latest"}
+                    }
             elif prov == "openrouter":
                 models_dict = {
                     "openrouter/auto": {"name": f"{badge} OpenRouter Auto"},
                     "openrouter/free": {"name": f"{badge} OpenRouter Free"},
-                    "meta-llama/llama-3.3-70b-instruct:free": {"name": f"{badge} Llama 3.3 70B (Free)"},
-                    "qwen/qwen-2.5-coder-32b-instruct:free": {"name": f"{badge} Qwen 2.5 Coder (Free)"},
-                    "deepseek/deepseek-r1:free": {"name": f"{badge} DeepSeek R1 (Free)"},
-                    "google/gemini-2.0-flash-exp:free": {"name": f"{badge} Gemini 2.0 Flash (Free)"},
-                    "minimax/minimax-m3:free": {"name": f"{badge} MiniMax M3 (Frontier)"},
-                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} Nemotron 3 Nano"},
-                    "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 (Frontier)"},
-                    "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 (Code)"}
+                    "minimax/minimax-m3:free": {"name": f"{badge} MiniMax M3 Frontier"},
+                    "nvidia/nemotron-3-super-120b-a12b:free": {"name": f"{badge} Nemotron 3 Super 120B"},
+                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} Nemotron 3 Nano Reasoning"},
+                    "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 Frontier"},
+                    "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 Code"}
                 }
+            else:
+                models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
 
             prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in opencode_providers else f"{prov}_{acc_tag.lower()}"
 
-            opencode_providers[prov_key] = {
+            BUILTIN_PROVIDERS = {"google", "openrouter", "mistral", "nvidia", "groq", "deepseek"}
+            is_builtin = prov_key in BUILTIN_PROVIDERS
+
+            p_entry = {
                 "npm": npm_pkg,
                 "name": f"{badge} {api.get('name', prov)}",
                 "options": opts,
                 "models": models_dict
             }
-            # Garantizar siempre el proveedor canónico primario
-            if prov not in opencode_providers:
-                opencode_providers[prov] = {
-                    "npm": npm_pkg,
-                    "name": f"{prov.capitalize()} Fleet [Primary]",
-                    "options": dict(opts),
-                    "models": dict(models_dict)
-                }
-            else:
-                opencode_providers[prov]["models"].update(models_dict)
+            if is_builtin:
+                p_entry["whitelist"] = list(models_dict.keys())
+            opencode_providers[prov_key] = p_entry
+
+        ALL_KNOWN_NATIVE_PROVIDERS = [
+            "alibaba", "aliyun", "amazon-bedrock", "anthropic", "azure", "bai",
+            "bedrock", "cerebras", "cloudflare", "cohere", "fireworks",
+            "github-copilot", "lmstudio", "moonshotai", "ollama", "openai",
+            "perplexity", "replicate", "tabitoken", "together", "upstage",
+            "vertex", "vllm", "voyage", "xai", "zen"
+        ]
+        disabled_providers = [p for p in ALL_KNOWN_NATIVE_PROVIDERS if p not in opencode_providers]
 
         opencode_cfg = {
             "$schema": "https://opencode.ai/config.json",
             "model": "google/gemini-3.7-flash",
             "small_model": "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            "disabled_providers": disabled_providers,
+            "enabled_providers": list(opencode_providers.keys()),
             "provider": opencode_providers
         }
         if existing_mcp:
@@ -1857,15 +2129,21 @@ class TabApiManager(QWidget):
             tm = api.get("test_model", "default")
             prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in hermes_providers else f"{prov}_{acc_tag.lower()}"
 
-            if prov == "deepseek":
-                model_list = ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]
+            if prov == "google":
+                model_list = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]
+            elif prov == "deepseek":
+                model_list = ["deepseek-chat", "deepseek-reasoner"]
+            elif prov == "nvidia":
+                model_list = ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]
+            elif prov == "mistral":
+                model_list = ["codestral-latest"]
             elif prov == "openrouter":
                 model_list = [
-                    "openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free",
+                    "openrouter/auto", "openrouter/free", "minimax/minimax-m3:free",
+                    "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+                    "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free", "meta-llama/llama-3.3-70b-instruct:free",
                     "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free",
-                    "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free",
-                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free",
-                    "poolside/laguna-s-2.1:free"
+                    "google/gemini-2.0-flash-exp:free"
                 ]
             else:
                 model_list = [tm]
