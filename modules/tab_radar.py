@@ -1534,6 +1534,32 @@ class AIAdvisorWorker(CancellableThread):
         self.response_ready.emit(answer)
 
 
+class ParityAuditWorker(CancellableThread):
+    """Worker QThread para auditar paridad multi-agente sin bloquear la UI ni fallar timers."""
+    audit_finished = pyqtSignal(bool, str)
+
+    def run(self):
+        script_path = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "verify_multiagent_parity.py")
+        if not os.path.exists(script_path):
+            candidate = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS/verify_multiagent_parity.py")
+            if os.path.exists(candidate):
+                script_path = candidate
+
+        if not os.path.exists(script_path):
+            if not self.is_cancelled():
+                self.audit_finished.emit(False, f"Script no encontrado: {script_path}")
+            return
+
+        try:
+            res = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=25)
+            success = (res.returncode == 0 and "CERTIFICADO 100% PARITARIO" in res.stdout)
+            if not self.is_cancelled():
+                self.audit_finished.emit(success, res.stdout)
+        except Exception as e:
+            if not self.is_cancelled():
+                self.audit_finished.emit(False, str(e))
+
+
 class TabRadar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1545,6 +1571,7 @@ class TabRadar(QWidget):
         self.advisor_worker: Optional[AIAdvisorWorker] = None
         self.discovery_worker: Optional[CatalogDiscoveryWorker] = None
         self.sync_worker: Optional[SyncHP45Worker] = None
+        self.parity_worker: Optional[ParityAuditWorker] = None
         self._kpi_throttle_timer: Optional[QTimer] = None
 
         self.init_ui()
@@ -2177,36 +2204,31 @@ class TabRadar(QWidget):
         return card
 
     def run_parity_audit(self):
-        """Ejecuta verify_multiagent_parity.py en background y refresca los indicadores."""
+        """Ejecuta verify_multiagent_parity.py en background mediante worker QThread y refresca los indicadores."""
         self.lbl_parity_verdict.setText("⏳ Auditando...")
         self.lbl_parity_verdict.setStyleSheet(f"color: {COLOR_WARNING};")
         self.btn_audit_parity.setEnabled(False)
+        self.log("🔄 Iniciando auditoría de paridad multi-agente en segundo plano...")
 
-        def _worker():
-            script_path = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "verify_multiagent_parity.py")
-            try:
-                res = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=20)
-                success = (res.returncode == 0 and "CERTIFICADO 100% PARITARIO" in res.stdout)
-                return success, res.stdout
-            except Exception as e:
-                return False, str(e)
+        if self.parity_worker is not None and is_worker_running(self.parity_worker):
+            return
 
-        def _done(ok, out):
-            self.btn_audit_parity.setEnabled(True)
-            if ok:
-                self.lbl_parity_verdict.setText("🎉 100% PARITARIO")
-                self.lbl_parity_verdict.setStyleSheet("color: #10B981;")
-                for b in self.parity_badges.values():
-                    b.setStyleSheet("background-color: #064E3B; color: #34D399; border: 1px solid #059669; border-radius: 4px; padding: 3px 6px;")
-            else:
-                self.lbl_parity_verdict.setText("⚠️ OBSERVACIONES")
-                self.lbl_parity_verdict.setStyleSheet("color: #EF4444;")
+        self.parity_worker = ParityAuditWorker(self)
+        self.parity_worker.audit_finished.connect(self._on_parity_audit_done)
+        self.parity_worker.start()
 
-        def _run():
-            ok, out = _worker()
-            QTimer.singleShot(0, lambda: _done(ok, out))
-
-        threading.Thread(target=_run, daemon=True).start()
+    def _on_parity_audit_done(self, ok: bool, out: str):
+        self.btn_audit_parity.setEnabled(True)
+        if ok:
+            self.lbl_parity_verdict.setText("🎉 100% PARITARIO")
+            self.lbl_parity_verdict.setStyleSheet("color: #10B981;")
+            for b in self.parity_badges.values():
+                b.setStyleSheet("background-color: #064E3B; color: #34D399; border: 1px solid #059669; border-radius: 4px; padding: 3px 6px;")
+            self.log("✅ Auditoría de paridad completada: Certificado 100% Paritario.")
+        else:
+            self.lbl_parity_verdict.setText("⚠️ OBSERVACIONES")
+            self.lbl_parity_verdict.setStyleSheet("color: #EF4444;")
+            self.log("⚠️ Auditoría de paridad completada con observaciones.")
 
     def update_kpi_dashboard(self, results=None):
         """Refresca las 5 cards KPI del dashboard (flota, latencia, speed leader, contexto, distribución)."""
@@ -3601,12 +3623,13 @@ fallback_model:
 
     def cleanup(self):
         """Detiene y espera workers de forma determinista y cooperativa sin terminate()."""
-        for worker in (self.probe_worker, self.advisor_worker, self.discovery_worker, self.sync_worker):
+        for worker in (self.probe_worker, self.advisor_worker, self.discovery_worker, self.sync_worker, self.parity_worker):
             stop_worker(worker, timeout_ms=1800)
         self.probe_worker = None
         self.advisor_worker = None
         self.discovery_worker = None
         self.sync_worker = None
+        self.parity_worker = None
 
     def wait_for_shutdown(self, timeout_ms: int = 2000) -> bool:
         """Contrato FSU-002: cleanup() ya esperó por cada worker de forma determinista."""

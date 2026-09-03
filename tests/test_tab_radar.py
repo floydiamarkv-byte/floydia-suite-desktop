@@ -63,3 +63,22 @@ def test_probe_streaming_ttft_local_server():
     assert "Hola mundo" in res.get("response_snippet", ""), res
     assert res.get("tokens") == 6, res
     assert res.get("tps", 0) > 0, res
+
+
+def test_parity_audit_worker_contract(monkeypatch):
+    import modules.tab_radar as tradar
+    assert hasattr(tradar, "ParityAuditWorker"), "tab_radar debe definir ParityAuditWorker como QThread/CancellableThread"
+
+    class MockProcess:
+        returncode = 0
+        stdout = "🎉 [CERTIFICADO 100% PARITARIO]\nOK"
+
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: MockProcess())
+    worker = tradar.ParityAuditWorker()
+    emitted = []
+    worker.audit_finished.connect(lambda ok, out: emitted.append((ok, out)))
+    worker.run()
+    assert len(emitted) == 1
+    assert emitted[0][0] is True
+    assert "CERTIFICADO 100% PARITARIO" in emitted[0][1]
