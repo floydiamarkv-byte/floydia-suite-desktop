@@ -26,7 +26,7 @@ import re
 import tempfile
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("floydia.state_store")
 
@@ -79,6 +79,110 @@ def load_jsonc(path: str) -> Dict[str, Any]:
         raw = f.read()
     stripped = _JSONC_COMMENT_RE.sub(lambda m: m.group(1) or "", raw)
     return json.loads(stripped)
+
+
+# ── Ownership Registry (FSU-008) ─────────────────────────────────────────────
+# Regla invariable: "FloydIA solo puede borrar lo que FloydIA puede demostrar que creó."
+MANAGED_RESOURCES_FILE = os.environ.get(
+    "FLOYDIA_MANAGED_RESOURCES",
+    os.path.expanduser("~/.config/floydia-suite/managed-resources.json"),
+)
+
+
+def load_managed_registry() -> Dict[str, Any]:
+    """Carga el registro de recursos gestionados (tolerante a fallos)."""
+    return atomic_read_json(MANAGED_RESOURCES_FILE, default={"version": 1, "resources": {}})
+
+
+def save_managed_registry(registry: Dict[str, Any]) -> None:
+    """Persiste el registro de recursos gestionados atómicamente (solo tras éxito del target)."""
+    registry["version"] = max(1, int(registry.get("version", 1)))
+    registry["updated_at"] = utc_now_iso()
+    atomic_write_json(MANAGED_RESOURCES_FILE, registry)
+
+
+def merge_managed_section(
+    existing_section: Optional[Dict[str, Any]],
+    generated: Dict[str, Any],
+    resource_id: str,
+    registry: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Fusión no destructiva de una sección gestionada (p.ej. "mcp" en opencode.jsonc,
+    "context_servers" en Zed, "mcpServers" en Qoder).
+
+    Reglas de propiedad (ownership):
+      - Entradas NUNCA gestionadas por la suite (manuales del usuario): preservadas intactas.
+      - Entradas previamente gestionadas: actualizadas, o eliminadas si la suite ya no
+        las genera (= desactivadas por el usuario en la UI de la suite).
+    Devuelve (seccion_fusionada, nombres_gestionados_ahora). El registry se actualiza
+    en memoria; el llamador debe persistirlo SOLO si la escritura del target tuvo éxito.
+    """
+    if registry is None:
+        registry = load_managed_registry()
+    resources = registry.setdefault("resources", {})
+    res_entry = resources.setdefault(resource_id, {})
+    prev_managed = set(res_entry.get("managed_names", []) or [])
+    managed_now = set(generated.keys())
+
+    merged: Dict[str, Any] = dict(existing_section or {})
+    for name in prev_managed - managed_now:
+        merged.pop(name, None)
+    merged.update(generated)
+
+    res_entry["managed_names"] = sorted(managed_now)
+    return merged, sorted(managed_now)
+
+
+def atomic_write_text(path: str, text: str, mode: int = 0o644) -> None:
+    """
+    Escritura atómica de texto plano (YAML, etc.): temporal en el mismo directorio,
+    fsync, os.replace y flock con timeout como defensa en profundidad.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(directory, exist_ok=True)
+    lock_path = f"{path}.lock"
+
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".floydia_text_", suffix=".tmp")
+    try:
+        with open(lock_path, "a", encoding="utf-8") as lock_file:
+            if not _flock_with_timeout(lock_file.fileno(), fcntl.LOCK_EX):
+                logger.warning(
+                    "Lock exclusivo ocupado tras %.1fs en %s; se procede sin lock (riesgo asumido).",
+                    FLOCK_TIMEOUT_S, lock_path,
+                )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(text)
+                    f.flush()
+                    os.fsync(f.fileno())
+                try:
+                    os.chmod(tmp_path, mode)
+                except Exception:
+                    pass
+                os.replace(tmp_path, path)
+                try:
+                    dir_fd = os.open(directory, os.O_DIRECTORY)
+                    try:
+                        os.fsync(dir_fd)
+                    finally:
+                        os.close(dir_fd)
+                except Exception:
+                    pass
+                logger.debug("Texto persistido atómicamente: %s", path)
+            finally:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        logger.exception("Fallo al persistir texto atómico en %s", path)
+        raise
 
 
 def utc_now_iso() -> str:

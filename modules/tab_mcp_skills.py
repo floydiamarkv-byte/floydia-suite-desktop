@@ -9,6 +9,7 @@ y ciclo de vida determinista sin terminate().
 import os
 import sys
 import json
+import re
 import shutil
 import fcntl
 from typing import Dict, Any, List, Optional, Tuple
@@ -123,6 +124,88 @@ from theme import (
     COLOR_SECONDARY_BLUE, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING,
     COLOR_TEXT_MAIN, COLOR_TEXT_MUTED, CancellableThread, stop_worker, is_worker_running
 )
+
+# ── Ownership Registry & Fusión No Destructiva (FSU-008) ─────────────────────
+
+_HERMES_MCP_TOP_RE = re.compile(r'(?m)^mcp_servers:\s*(#.*)?$')
+_HERMES_ENTRY_RE = re.compile(r'^  ([A-Za-z0-9_\-.]+?):\s*(#.*)?$')
+_HERMES_MARKER = "# ── Servidores MCP (Sincronizado por Floydia Suite) ──"
+
+
+def _backup_config_file(path: str) -> None:
+    """Backup rotativo simple (.bak) antes de una escritura con capacidad destructiva."""
+    try:
+        if os.path.exists(path):
+            shutil.copy2(path, f"{path}.bak")
+    except Exception:
+        pass
+
+
+def _parse_hermes_mcp_entries(block: str) -> List[Tuple[str, List[str]]]:
+    """
+    Parsea las entradas del bloque mcp_servers de config.yaml (claves a 2 espacios).
+    Devuelve [(nombre, lineas_verbatim)] para preservar el formato original.
+    """
+    entries: List[Tuple[str, List[str]]] = []
+    current: Optional[List[Any]] = None  # [nombre, lineas]
+    for line in block.split("\n"):
+        m = _HERMES_ENTRY_RE.match(line)
+        if m:
+            current = [m.group(1).strip(), [line]]
+            entries.append((current[0], current[1]))
+            continue
+        if current is not None and (
+            line.startswith("    ") or line.strip() == "" or line.strip().startswith("#")
+        ):
+            current[1].append(line)
+        elif current is not None:
+            current = None  # dedent inesperado: fin del bloque
+    return entries
+
+
+def _merge_hermes_mcp_content(
+    content: str,
+    generated_entries: Dict[str, List[str]],
+    registry: Dict[str, Any],
+) -> str:
+    """
+    Fusión no destructiva del bloque mcp_servers de ~/.hermes/config.yaml (FSU-008):
+      - Entradas manuales del usuario (nunca gestionadas): preservadas verbatim.
+      - Entradas gestionadas previamente: re-renderizadas, o eliminadas si la suite
+        ya no las genera.
+    Actualiza registry["resources"]["hermes"]["managed_names"] en memoria.
+    """
+    resources = registry.setdefault("resources", {})
+    res_entry = resources.setdefault("hermes", {})
+    prev_managed = set(res_entry.get("managed_names", []) or [])
+    managed_now = set(generated_entries.keys())
+
+    match = _HERMES_MCP_TOP_RE.search(content)
+    if match:
+        head = content[:match.start()]
+        block = content[match.end():]
+    else:
+        head = content
+        block = ""
+    head = head.rstrip()
+    # Evitar duplicar el marcador histórico de la suite en sincronizaciones sucesivas
+    if head.endswith(_HERMES_MARKER):
+        head = head[: -len(_HERMES_MARKER)].rstrip()
+
+    preserved: List[List[str]] = []
+    for name, entry_lines in _parse_hermes_mcp_entries(block):
+        if name in managed_now or name in prev_managed:
+            continue  # gestionadas por la suite: se re-renderizan o se eliminan
+        preserved.append(entry_lines)  # entrada manual del usuario: intacta
+
+    lines: List[str] = ["mcp_servers:"]
+    for entry_lines in preserved:
+        lines.extend(entry_lines)
+    for name in generated_entries:
+        lines.extend(generated_entries[name])
+
+    res_entry["managed_names"] = sorted(managed_now)
+    return (head + "\n" if head else "") + "\n".join(lines) + "\n"
 
 CANONICAL_PROFILES = {
     "web-deploy": {
@@ -809,9 +892,20 @@ class TabMcpSkills(QWidget):
                     "small_model": "mistral/ministral-8b-latest"
                 }
 
-            opencode_cfg["mcp"] = opencode_mcp
+            # Fusión no destructiva (FSU-008): preserva MCPs manuales del usuario.
+            from modules.state_store import (
+                load_managed_registry, merge_managed_section, save_managed_registry
+            )
+            registry = load_managed_registry()
+            merged_mcp, _managed_now = merge_managed_section(
+                opencode_cfg.get("mcp", {}), opencode_mcp, "opencode", registry
+            )
+            opencode_cfg["mcp"] = merged_mcp
+            _backup_config_file(OPENCODE_CONFIG)
             os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
             atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
+            # Persistir el registro SOLO tras éxito de la escritura del target.
+            save_managed_registry(registry)
 
             if not silent:
                 QMessageBox.information(
@@ -851,8 +945,18 @@ class TabMcpSkills(QWidget):
                     entry["source"] = "custom"
                 new_ctx[key] = entry
 
-            zed_data["context_servers"] = new_ctx
+            # Fusión no destructiva (FSU-008): preserva context_servers manuales.
+            from modules.state_store import (
+                load_managed_registry, merge_managed_section, save_managed_registry
+            )
+            registry = load_managed_registry()
+            merged_ctx, _managed_now = merge_managed_section(
+                zed_data.get("context_servers", {}) or {}, new_ctx, "zed", registry
+            )
+            zed_data["context_servers"] = merged_ctx
+            _backup_config_file(ZED_CONFIG)
             atomic_json_write(ZED_CONFIG, zed_data)
+            save_managed_registry(registry)
 
             if not silent:
                 QMessageBox.information(
@@ -873,32 +977,30 @@ class TabMcpSkills(QWidget):
                 return False
 
             active_servers = self._get_active_mcp_specs()
-            mcp_block = ["", "# ── Servidores MCP (Sincronizado por Floydia Suite) ──", "mcp_servers:"]
+            # Entradas generadas por la suite (una lista de líneas YAML por servidor)
+            generated_entries: Dict[str, List[str]] = {}
             for name, srv in active_servers:
                 key = name.replace("-mcp", "")
                 cmd = srv.get("command", "")
                 args = srv.get("args", [])
-                mcp_block.append(f"  {key}:")
-                mcp_block.append(f"    command: {cmd}")
+                entry_lines = [f"  {key}:", f"    command: {cmd}"]
                 if args:
-                    mcp_block.append("    args:")
+                    entry_lines.append("    args:")
                     for a in args:
-                        mcp_block.append(f"      - {a}")
+                        entry_lines.append(f"      - {a}")
+                generated_entries[key] = entry_lines
 
             with open(HERMES_CONFIG, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # Anclar al key top-level de YAML (inicio de línea, sin indentación)
-            # para no truncar por menciones del substring en comentarios o claves anidadas.
-            import re as _re
-            _mcp_top_re = _re.compile(r'(?m)^mcp_servers:\s*(#.*)?$')
-            match = _mcp_top_re.search(content)
-            if match:
-                content = content[:match.start()].rstrip()
-            content = content.rstrip() + "\n" + "\n".join(mcp_block) + "\n"
-
-            with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
-                f.write(content)
+            # Fusión no destructiva (FSU-008): preserva entradas manuales del usuario
+            # dentro del bloque mcp_servers; solo elimina/actualiza las gestionadas.
+            from modules.state_store import load_managed_registry, save_managed_registry, atomic_write_text
+            registry = load_managed_registry()
+            _backup_config_file(HERMES_CONFIG)
+            new_content = _merge_hermes_mcp_content(content, generated_entries, registry)
+            atomic_write_text(HERMES_CONFIG, new_content)
+            save_managed_registry(registry)
 
             if not silent:
                 QMessageBox.information(
@@ -931,8 +1033,18 @@ class TabMcpSkills(QWidget):
                     entry["env"] = srv.get("env")
                 new_servers[name] = entry
 
-            qoder_data["mcpServers"] = new_servers
+            # Fusión no destructiva (FSU-008): preserva mcpServers manuales.
+            from modules.state_store import (
+                load_managed_registry, merge_managed_section, save_managed_registry
+            )
+            registry = load_managed_registry()
+            merged_servers, _managed_now = merge_managed_section(
+                qoder_data.get("mcpServers", {}) or {}, new_servers, "qoder", registry
+            )
+            qoder_data["mcpServers"] = merged_servers
+            _backup_config_file(QODER_CONFIG)
             atomic_json_write(QODER_CONFIG, qoder_data)
+            save_managed_registry(registry)
 
             if not silent:
                 QMessageBox.information(
