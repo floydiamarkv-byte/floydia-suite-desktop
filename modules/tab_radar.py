@@ -184,6 +184,7 @@ def load_env_vars() -> Dict[str, str]:
     candidates = [
         ENV_FILE,
         os.path.expanduser("~/.config/floydia-suite/.env"),
+        os.path.expanduser("~/.config/floydia-suite/secrets.env"),
         os.path.expanduser("~/.secrets/antigravity.env"),
         os.path.join(WORKSPACE_ROOT, ".env")
     ]
@@ -544,6 +545,25 @@ def calculate_tps(output_tokens: int, timing: Timing) -> float:
     return round(output_tokens / gen_time, 1)
 
 
+def _sse_extract_event(line: bytes) -> Optional[Dict[str, Any]]:
+    """
+    Extrae un evento SSE (`data: {...}`) de una línea de la respuesta.
+    Devuelve None si no es un evento JSON válido o es la sentinela [DONE].
+    """
+    if not line or line.strip() == b"":
+        return None
+    text = line.decode("utf-8", errors="replace").strip()
+    if not text.startswith("data:"):
+        return None
+    data = text[len("data:"):].strip()
+    if not data or data == "[DONE]":
+        return None
+    try:
+        return json.loads(data)
+    except Exception:
+        return None
+
+
 def cancellable_backoff(cancel_event: Optional[threading.Event], delay: float) -> bool:
     """
     True = cancelado durante el backoff.
@@ -646,8 +666,63 @@ def probe_single_endpoint(item: Dict[str, Any], probe_cfg: Dict[str, Any], cance
 
         t_start = time.monotonic()
         try:
-            req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+            # ── Modo Streaming SSE (FSU-009): TTFT real + TPS de generación ──
+            stream_payload = dict(payload)
+            stream_payload["stream"] = True
+            stream_payload["stream_options"] = {"include_usage": True}
+
+            req = urllib.request.Request(url, data=json.dumps(stream_payload).encode("utf-8"), headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=timeout) as resp:
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+                if "text/event-stream" in ctype:
+                    # ── Streaming real: primer delta = TTFT auténtico ──
+                    first_chunk: Optional[float] = None
+                    fragments: List[str] = []
+                    reasoning_fragments: List[str] = []
+                    usage: Dict[str, Any] = {}
+                    for line in resp:
+                        if cancel_event and cancel_event.is_set():
+                            return {"status": "CANCELLED", "latency_ms": 0, "response_snippet": "Sondeo cancelado", "error": "cancelled"}
+                        ev = _sse_extract_event(line)
+                        if ev is None:
+                            continue
+                        if ev.get("usage"):
+                            usage = ev["usage"]
+                        choices = ev.get("choices") or []
+                        if choices:
+                            delta = choices[0].get("delta") or {}
+                            content_piece = delta.get("content")
+                            r_piece = delta.get("reasoning_content")
+                            if first_chunk is None and (content_piece or r_piece):
+                                first_chunk = time.monotonic()
+                            if content_piece:
+                                fragments.append(str(content_piece))
+                            if r_piece:
+                                reasoning_fragments.append(str(r_piece))
+                    t_end = time.monotonic()
+                    timing = Timing(request_start=t_start, first_chunk=first_chunk, response_end=t_end)
+                    latency = timing.total_ms
+                    content_full = "".join(fragments)
+                    reasoning_full = "".join(reasoning_fragments)
+                    snippet = (content_full or reasoning_full or "200 OK (Streaming)").strip().replace("\n", " ")
+                    reasoning_only = not content_full.strip()
+                    if reasoning_only and snippet:
+                        snippet = "🧠 " + snippet
+                    if len(snippet) > 80:
+                        snippet = snippet[:77] + "..."
+                    out_tokens = int(usage.get("completion_tokens") or 0)
+                    if out_tokens <= 0:
+                        # Estimación conservadora (BPE ≈ 4 chars/token) si no viene usage
+                        out_tokens = int(len(content_full + reasoning_full) / 4)
+                    tps = calculate_tps(out_tokens, timing)
+                    metric_mode = "streaming" if first_chunk is not None else "streaming_no_first_delta"
+                    ttft_ms = None if first_chunk is None else round((first_chunk - t_start) * 1000)
+                    snip_lower = snippet.lower()
+                    if not reasoning_only and (any(kw in snip_lower for kw in no_credit_keywords) or snip_lower.startswith('{"error"')):
+                        return {"status": "NO_CREDITS", "latency_ms": latency, "response_snippet": f"⚠️ Sin créditos / Error: {snippet[:60]}", "tokens": out_tokens, "tps": tps, "ttft_ms": ttft_ms, "metric_mode": metric_mode, "error": "Insufficient Credits"}
+                    return {"status": "200_OK", "latency_ms": latency, "response_snippet": snippet, "tokens": out_tokens, "tps": tps, "ttft_ms": ttft_ms, "metric_mode": metric_mode, "error": None}
+
+                # ── Fallback no-streaming (algunos gateways ignoran "stream") ──
                 raw_data = resp.read(262144)  # Lectura acotada a 256 KB para evitar consumo de memoria
                 t_end = time.monotonic()
                 timing = Timing(request_start=t_start, first_chunk=None, response_end=t_end)
@@ -688,6 +763,8 @@ def probe_single_endpoint(item: Dict[str, Any], probe_cfg: Dict[str, Any], cance
                         "response_snippet": f"⚠️ Sin créditos / Error: {snippet[:60]}",
                         "tokens": out_tokens,
                         "tps": tps,
+                        "ttft_ms": None,
+                        "metric_mode": "non_streaming",
                         "error": "Insufficient Credits"
                     }
 
@@ -697,6 +774,8 @@ def probe_single_endpoint(item: Dict[str, Any], probe_cfg: Dict[str, Any], cance
                     "response_snippet": snippet,
                     "tokens": out_tokens,
                     "tps": tps,
+                    "ttft_ms": None,
+                    "metric_mode": "non_streaming",
                     "error": None
                 }
 

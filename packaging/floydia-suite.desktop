@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=FloydIA Suite 2.0
+GenericName=Centro de Comando SRE y Telemetría IA
+Comment=Centro unificado de comando SRE y telemetría IA (7 pestañas)
+Exec=floydia-suite
+Icon=floydia-suite
+Terminal=false
+Categories=System;Utility;Development;
+StartupWMClass=floydia-suite
+Keywords=SRE;AI;Ops;PyQt6;FloydIA

@@ -66,6 +66,7 @@ def load_env_vars() -> Dict[str, str]:
     candidates = [
         ENV_FILE,
         os.path.expanduser("~/.config/floydia-suite/.env"),
+        os.path.expanduser("~/.config/floydia-suite/secrets.env"),
         os.path.expanduser("~/.secrets/antigravity.env"),
         os.path.join(WORKSPACE_ROOT, ".env")
     ]

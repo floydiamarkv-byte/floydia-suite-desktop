@@ -179,6 +179,7 @@ class DefaultRebootEngine:
         env_candidates = [
             os.path.join(WORKSPACE_ROOT, ".env"),
             os.path.expanduser("~/.config/floydia-suite/.env"),
+            os.path.expanduser("~/.config/floydia-suite/secrets.env"),
             os.path.expanduser("~/.secrets/antigravity.env")
         ]
         res = {}

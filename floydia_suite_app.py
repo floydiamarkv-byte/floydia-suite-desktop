@@ -323,17 +323,34 @@ class FloydIASuiteApp(QMainWindow):
         return geo
 
     def _restore_geometry_from_coords(self, win: dict) -> None:
-        """Fallback: restaura por coordenadas solo si caen dentro de una pantalla conectada."""
+        """Fallback: restaura geometría SIEMPRE recortada dentro de una pantalla conectada (FSU-015)."""
         try:
             x, y = int(win["x"]), int(win["y"])
             w, h = int(win["width"]), int(win["height"])
         except (KeyError, TypeError, ValueError):
             return
-        if QGuiApplication.screenAt(QPoint(x, y)) is None:
-            return
         if w < 400 or h < 300:
             return
-        self.setGeometry(QRect(x, y, w, h))
+
+        rect = QRect(x, y, w, h)
+        for screen in QGuiApplication.screens():
+            avail = screen.availableGeometry()
+            if rect.intersects(avail):
+                width = min(rect.width(), avail.width())
+                height = min(rect.height(), avail.height())
+                cx = max(avail.left(), min(rect.x(), avail.right() - width + 1))
+                cy = max(avail.top(), min(rect.y(), avail.bottom() - height + 1))
+                self.setGeometry(QRect(cx, cy, width, height))
+                return
+
+        primary = QGuiApplication.primaryScreen()
+        avail = primary.availableGeometry() if primary else QRect(0, 0, 1180, 800)
+        self.setGeometry(QRect(
+            avail.left() + 40,
+            avail.top() + 40,
+            min(1180, max(400, avail.width() - 80)),
+            min(800, max(300, avail.height() - 80)),
+        ))
 
     def restore_session_state(self, fallback_tab: Optional[int] = None) -> None:
         """
@@ -475,7 +492,37 @@ def main():
     # None = no se especificó --tab: se respeta la pestaña activa de la sesión guardada.
     init_tab = tab_map.get(args.tab.lower()) if args.tab else None
 
+    # Preflight de dependencias (BUG-08 Grok): PyQt6 es crítico; el resto son advertencias.
+    import importlib
+    _missing = []
+    try:
+        importlib.import_module("PyQt6")
+    except ImportError:
+        _missing.append("PyQt6")
+    if _missing:
+        print("❌ Dependencia crítica faltante: " + ", ".join(_missing))
+        print("   Ejecuta:  ./install.sh")
+        sys.exit(1)
+    _warnings = []
+    for _mod, _label in (("psutil", "psutil"), ("yaml", "PyYAML")):
+        try:
+            importlib.import_module(_mod)
+        except ImportError:
+            _warnings.append(_label)
+    if _warnings:
+        print("⚠️ Advertencia: módulos opcionales ausentes: " + ", ".join(_warnings))
+        print("   Algunas pestañas (Cleaner/API) requieren:  pip install " + " ".join(_warnings))
+
     app = QApplication(sys.argv)
+
+    # Política HiDPI explícita (BUG-08 Grok / FSU-016): escalado fraccional coherente.
+    try:
+        QApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
+    except Exception:
+        pass
+
     app.setStyleSheet(FLOYDIA_SUITE_QSS)
     
     window = FloydIASuiteApp(initial_tab=init_tab)

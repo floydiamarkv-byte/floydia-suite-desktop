@@ -1,0 +1,40 @@
+# Maintainer: FloydIA <floydiamarkv@gmail.com>
+# PKGBUILD para Arch Linux / AUR — FloydIA Suite 2.0
+pkgname=floydia-suite
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="Centro unificado de comando SRE y telemetria IA para Linux (PyQt6) — 7 pestanas"
+arch=('any')
+url="https://github.com/floydiamarkv-byte/floydia-suite-desktop"
+license=('MIT')
+depends=('python' 'python-pyqt6' 'python-psutil' 'python-yaml')
+makedepends=('python-build')
+optdepends=('ffmpeg: transcodificacion y capturas en pestanas SRE')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/floydiamarkv-byte/floydia-suite-desktop/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/floydia-suite-desktop-$pkgver"
+
+    # Árbol de datos bajo /usr/share/floydia-suite
+    install -d "$pkgdir/usr/share/floydia-suite/modules"
+    install -Dm644 floydia_suite_app.py theme.py requirements.txt README.md "$pkgdir/usr/share/floydia-suite/"
+    install -Dm644 modules/*.py "$pkgdir/usr/share/floydia-suite/modules/"
+    install -Dm755 run.sh "$pkgdir/usr/share/floydia-suite/run.sh"
+    install -Dm644 packaging/floydia-suite.desktop "$pkgdir/usr/share/applications/floydia-suite.desktop"
+    if [ -f assets/icon.png ]; then
+        install -Dm644 assets/icon.png "$pkgdir/usr/share/pixmaps/floydia-suite.png"
+    fi
+
+    # Launcher en PATH: cambia al dir de datos y ejecuta la suite
+    install -dm755 "$pkgdir/usr/bin"
+    cat > "$pkgdir/usr/bin/floydia-suite" <<'EOF'
+#!/usr/bin/env bash
+# FloydIA Suite — launcher instalado por PKGBUILD
+set -e
+cd /usr/share/floydia-suite
+exec ./run.sh "$@"
+EOF
+    chmod +x "$pkgdir/usr/bin/floydia-suite"
+}
+# vim: set ts=2 sw=2 expandtab:
