@@ -28,23 +28,24 @@ from theme import (
 
 def get_diag_targets() -> dict:
     return {
-        "gateway": (os.environ.get("GATEWAY_NAME", "Gateway / Router"), os.environ.get("GATEWAY_IP", "192.168.1.1")),
-        "server_1": (os.environ.get("SERVER1_NAME", "Homelab Node 1"), os.environ.get("SERVER1_IP", "192.168.1.238")),
-        "server_2": (os.environ.get("SERVER2_NAME", "Homelab Node 2"), os.environ.get("SERVER2_IP", "192.168.1.232")),
+        "router": (os.environ.get("GATEWAY_NAME", "Router MikroTik"), os.environ.get("GATEWAY_IP", "192.168.1.1")),
+        "ct114": (os.environ.get("SERVER1_NAME", "Proxmox CT114"), os.environ.get("SERVER1_IP", "192.168.1.238")),
+        "ct106": (os.environ.get("SERVER2_NAME", "Proxmox CT106"), os.environ.get("SERVER2_IP", "192.168.1.232")),
         "internet": ("Google DNS (WAN)", os.environ.get("DNS_PRIMARY", "8.8.8.8"))
     }
 
 def _probe_single_target(key: str, name: str, ip: str) -> tuple[str, dict]:
     """Ejecuta un probe ping individual de forma aislada y segura."""
+    import re
     try:
         cmd = ["ping", "-c", "1", "-W", "1", ip]
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=1.5, shell=False)
         if p.returncode == 0:
             lat = "OK"
-            for line in p.stdout.splitlines():
-                if "time=" in line:
-                    lat = line.split("time=")[1].split(" ")[0] + " ms"
-                    break
+            # Soporta tanto 'time=' (inglés) como 'tiempo=' (español / Arch Linux)
+            m = re.search(r'(?:time|tiempo)=([0-9.]+)\s*ms', p.stdout, re.IGNORECASE)
+            if m:
+                lat = f"{m.group(1)} ms"
             return key, {"name": name, "ip": ip, "lat": lat, "alive": True}
         else:
             return key, {"name": name, "ip": ip, "lat": "Timeout", "alive": False}

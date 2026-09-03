@@ -92,3 +92,50 @@ def test_switch_tab_stores_widget_instances():
             assert isinstance(tab_obj, QWidget), f"Pestaña {idx} debe ser un QWidget"
     finally:
         win.close()
+
+
+def test_diag_targets_and_ui_widgets_match():
+    import os
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    from PyQt6.QtWidgets import QApplication
+    _qapp = QApplication.instance() or QApplication([])
+    import modules.tab_diagnostics as td
+    diag_tab = td.TabDiagnostics()
+    try:
+        targets = td.get_diag_targets()
+        # Todas las claves de los targets deben tener su widget correspondiente en UI
+        for key in targets:
+            assert key in diag_tab.net_widgets, f"Clave '{key}' de get_diag_targets() ausente en net_widgets"
+    finally:
+        diag_tab.cleanup()
+
+
+def test_ping_parser_spanish_and_english(monkeypatch):
+    import subprocess
+    import modules.tab_diagnostics as td
+
+    # Simular salida ping en español
+    sample_es = (
+        "PING 192.168.1.1 (192.168.1.1) 56(84) bytes de datos.\n"
+        "64 bytes desde 192.168.1.1: icmp_seq=1 ttl=64 tiempo=0.45 ms\n"
+    )
+    # Simular salida ping en inglés
+    sample_en = (
+        "PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.\n"
+        "64 bytes from 8.8.8.8: icmp_seq=1 ttl=112 time=24.3 ms\n"
+    )
+
+    class MockCompletedProcess:
+        def __init__(self, stdout, returncode=0):
+            self.stdout = stdout
+            self.returncode = returncode
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: MockCompletedProcess(sample_es))
+    key, res = td._probe_single_target("router", "Router", "192.168.1.1")
+    assert res["alive"] is True
+    assert "0.45 ms" in res["lat"]
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: MockCompletedProcess(sample_en))
+    key, res = td._probe_single_target("internet", "Google DNS", "8.8.8.8")
+    assert res["alive"] is True
+    assert "24.3 ms" in res["lat"]
