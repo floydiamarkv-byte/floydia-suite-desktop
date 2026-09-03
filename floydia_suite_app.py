@@ -12,6 +12,7 @@ import os
 import sys
 import logging
 import argparse
+from typing import Optional
 
 logger = logging.getLogger("floydia_suite")
 
@@ -56,7 +57,7 @@ TAB_MODULE_KEYS = [
 
 
 class FloydIASuiteApp(QMainWindow):
-    def __init__(self, initial_tab: int = 0):
+    def __init__(self, initial_tab: Optional[int] = None):
         super().__init__()
         self.setWindowTitle("FloydIA Suite 2.0 — Centro Unificado de Comando y SRE")
         self.resize(1180, 800)
@@ -251,7 +252,7 @@ class FloydIASuiteApp(QMainWindow):
         self.setStatusBar(self.status_bar)
 
         # Activar pestaña inicial bajo demanda
-        self.switch_tab(initial_tab)
+        self.switch_tab(initial_tab if initial_tab is not None else 0)
 
     def switch_tab(self, index: int):
         if not (0 <= index < len(TAB_MODULE_KEYS)):
@@ -290,8 +291,9 @@ class FloydIASuiteApp(QMainWindow):
             btn.style().polish(btn)
 
     def quick_clean_action(self):
-        self.switch_tab(1)
-        opt_tab = self.tab_instances[1]
+        opt_idx = TAB_MODULE_KEYS.index("tab_optimizer")
+        self.switch_tab(opt_idx)
+        opt_tab = self.tab_instances[opt_idx]
         if opt_tab and hasattr(opt_tab, "run_all_optimizations"):
             opt_tab.run_all_optimizations()
 
@@ -326,7 +328,7 @@ class FloydIASuiteApp(QMainWindow):
             return
         self.setGeometry(QRect(x, y, w, h))
 
-    def restore_session_state(self, fallback_tab: int = 0) -> None:
+    def restore_session_state(self, fallback_tab: Optional[int] = None) -> None:
         """
         Restaura geometría de ventana, pestaña activa y estado de módulos.
         Tolerante a fallos: cualquier inconsistencia degrada a valores por defecto.
@@ -352,8 +354,9 @@ class FloydIASuiteApp(QMainWindow):
         if win.get("maximized"):
             self.setWindowState(Qt.WindowState.WindowMaximized)
 
-        # 2. Pestaña activa (si el usuario no pasó un flag explícito por CLI)
-        if fallback_tab == 0 and "active_tab" in state:
+        # 2. Pestaña activa (si el usuario no pasó un flag explícito por CLI;
+        # None = sin --tab, se respeta la sesión guardada)
+        if fallback_tab is None and "active_tab" in state:
             try:
                 target_tab = int(state.get("active_tab", 0))
                 if 0 <= target_tab < len(TAB_MODULE_KEYS):
@@ -434,7 +437,7 @@ def main():
         pass
 
     parser = argparse.ArgumentParser(description="FloydIA Suite 2.0 — Centro Unificado de Comando")
-    parser.add_argument("--tab", type=str, default="0", help="Pestaña inicial (reboot, optimizer, cleaner, mcp, radar, apis, diag)")
+    parser.add_argument("--tab", type=str, default=None, help="Pestaña inicial (reboot, optimizer, cleaner, mcp, radar, apis, diag)")
     args = parser.parse_args()
 
     tab_map = {
@@ -446,7 +449,8 @@ def main():
         "5": 5, "apis": 5, "api": 5, "keys": 5,
         "6": 6, "diag": 6, "network": 6
     }
-    init_tab = tab_map.get(args.tab.lower(), 0)
+    # None = no se especificó --tab: se respeta la pestaña activa de la sesión guardada.
+    init_tab = tab_map.get(args.tab.lower()) if args.tab else None
 
     app = QApplication(sys.argv)
     app.setStyleSheet(FLOYDIA_SUITE_QSS)

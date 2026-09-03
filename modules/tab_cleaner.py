@@ -53,7 +53,8 @@ def find_workspace_root() -> str:
         if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
             return curr
         curr = os.path.dirname(curr)
-    return "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS"
+    # Fallback seguro y portable: raíz del propio repo, nunca una ruta personal hardcodeada.
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
 CACHE_DIR = os.path.join(WORKSPACE_ROOT, "cache")
@@ -127,7 +128,12 @@ def is_path_strictly_protected(path: str) -> bool:
     Evalúa si una ruta está protegida contra cualquier operación de borrado.
     Garantiza que Bitwarden y las extensiones nunca sean alteradas.
     """
-    norm = os.path.normpath(path)
+    # Fix BUG-SEC-01: resolver enlaces simbólicos (realpath) para cerrar el bypass
+    # por symlink; si la ruta no existe aún, normpath mantiene el análisis textual.
+    try:
+        norm = os.path.realpath(path)
+    except OSError:
+        norm = os.path.normpath(path)
     base_name = os.path.basename(norm)
 
     # 1. Comprobar archivos críticos exactos
@@ -153,6 +159,19 @@ def is_path_strictly_protected(path: str) -> bool:
         return True
 
     return False
+
+
+def profile_has_protected_extension(profile_path: str) -> bool:
+    """
+    Detecta si el perfil Chromium tiene instalada alguna extensión de la allowlist
+    (p.ej. Bitwarden), para excluir su caché de Service Worker de la limpieza:
+    Chromium la guarda bajo hashes de origen opacos no identificables de forma fiable.
+    """
+    try:
+        ext_dir = os.path.join(profile_path, "Extensions", BITWARDEN_EXTENSION_ID)
+        return os.path.isdir(ext_dir)
+    except OSError:
+        return False
 
 
 # ── 3. ARQUITECTURA DE ACCIONES BLEACHBIT (ACTION ENGINE) ─────────────────────
@@ -657,14 +676,26 @@ def build_chromium_cleaner_category(
         ))
 
         # 2.3 Service Worker Cache Storage
-        sw_actions = [
+        # Fix BUG-01 (auditoría 2026-09): Chromium guarda el caché de Service Worker de
+        # extensiones MV3 (Bitwarden) bajo directorios con hash de origen, sin el ID de la
+        # extensión en texto plano: el allowlist textual no puede aislarlo. Si el perfil
+        # tiene una extensión protegida instalada, se OMITE toda la limpieza de Service
+        # Worker (fail-safe) y se advierte explícitamente en la descripción.
+        sw_skipped = profile_has_protected_extension(cp)
+        sw_actions = [] if sw_skipped else [
             ActionDelete(os.path.join(cp, "Service Worker", "CacheStorage"), "walk.all", "Service Worker Cache"),
             ActionDelete(os.path.join(cp, "Service Worker", "ScriptCache"), "walk.all", "Service Worker ScriptCache")
         ]
+        sw_label = f"🛠️ Service Workers Storage — [{dn}]"
+        sw_desc = (
+            f"⚠️ OMITIDO — perfil con extensiones protegidas (Bitwarden); el caché de Service "
+            f"Worker no es identificable de forma segura en Chromium." if sw_skipped
+            else f"Caché offline de aplicaciones web en {dn} (preservando bases de datos de extensiones)."
+        )
         cat.add_option(CleanerOption(
             opt_id=f"{cat_id}__{fn}__service_workers",
-            label=f"🛠️ Service Workers Storage — [{dn}]",
-            description=f"Caché offline de aplicaciones web en {dn} (preservando bases de datos de extensiones).",
+            label=sw_label,
+            description=sw_desc,
             actions=sw_actions,
             default_checked=True
         ))
@@ -1413,7 +1444,8 @@ class TabCleaner(QWidget):
         """Ejecuta el script de limpieza de papeleras en streaming hacia la consola."""
         script_file = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "limpiar_papeleras.sh")
         if not os.path.exists(script_file):
-            script_file = "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS/limpiar_papeleras.sh"
+            global_scripts_dir = os.environ.get("FLOYDIA_GLOBAL_SCRIPTS", os.path.join(WORKSPACE_ROOT, "SCRIPTS"))
+            script_file = os.path.join(global_scripts_dir, "limpiar_papeleras.sh")
 
         if not os.path.exists(script_file):
             QMessageBox.critical(self, "Archivo no encontrado", f"No se encontró el script en: {script_file}")

@@ -55,6 +55,9 @@ HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
 ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
 SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 EXPORT_REMOTE_KEYS_SCRIPT = os.path.join(CACHE_DIR, "export_remote_keys.sh")
+# ⚠️ Fix BUG-API-01: constantes referenciadas por PropagateAllWorker.run() que no estaban definidas (NameError en runtime).
+SYNC_HP45_SCRIPT = os.path.join(CACHE_DIR, "sync_models_hp45.sh")
+EXPORT_HP45_KEYS_SCRIPT = EXPORT_REMOTE_KEYS_SCRIPT
 
 
 def load_env_vars() -> Dict[str, str]:
@@ -62,8 +65,8 @@ def load_env_vars() -> Dict[str, str]:
     env_vars = {}
     candidates = [
         ENV_FILE,
-        "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/.env",
-        "/home/tec/.secrets/antigravity.env",
+        os.path.expanduser("~/.config/floydia-suite/.env"),
+        os.path.expanduser("~/.secrets/antigravity.env"),
         os.path.join(WORKSPACE_ROOT, ".env")
     ]
     for path in candidates:
@@ -105,7 +108,23 @@ def atomic_json_write(path: str, data: Any, mode: int = 0o600) -> None:
     fd, temp_path = tempfile.mkstemp(dir=parent, prefix=".tmp-", suffix=".json")
     try:
         with open(lock_path, "a", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                # Lock con timeout (LOCK_NB + deadline) para no congelar el QEventLoop.
+                _lock_deadline = time.time() + 3.0
+                _lock_acquired = False
+                while True:
+                    try:
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        _lock_acquired = True
+                        break
+                    except BlockingIOError:
+                        if time.time() >= _lock_deadline:
+                            break
+                        time.sleep(0.05)
+                if not _lock_acquired:
+                    print(f"[WARN] Lock ocupado tras 3s en {lock_path}; se escribe sin lock (riesgo asumido).")
+            except Exception:
+                pass
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
@@ -652,11 +671,16 @@ class PropagateAllWorker(CancellableThread):
             existing_mcp = {}
             if os.path.exists(OPENCODE_CONFIG):
                 try:
-                    with open(OPENCODE_CONFIG, "r", encoding="utf-8") as f:
-                        old_json = json.load(f)
-                        existing_mcp = old_json.get("mcp", {})
-                except Exception:
-                    pass
+                    from modules.state_store import load_jsonc
+                    old_json = load_jsonc(OPENCODE_CONFIG)
+                    existing_mcp = old_json.get("mcp", {})
+                except Exception as parse_exc:
+                    # Regla de seguridad (BUG-DATA-01): si opencode.jsonc no es parseable
+                    # (p.ej. JSONC con comentarios corruptos), NO reconstruir el archivo:
+                    # se perdería el bloque "mcp" del usuario. Abortar el target OpenCode.
+                    raise RuntimeError(
+                        f"opencode.jsonc no parseable ({parse_exc}); se omite para preservar la configuración"
+                    )
 
             opencode_providers = {}
             for api in self.apis:

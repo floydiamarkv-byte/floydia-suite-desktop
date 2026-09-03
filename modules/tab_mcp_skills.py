@@ -114,32 +114,9 @@ SKILLS_ARCHIVE_DIR = os.path.join(SKILLS_DIR, "_archive")
 
 
 def atomic_json_write(path: str, data: Any) -> None:
-    """Escritura atómica con fcntl.flock."""
-    parent = os.path.dirname(os.path.abspath(path))
-    os.makedirs(parent, exist_ok=True)
-    temp_path = f"{path}.{os.getpid()}.tmp"
-    lock_path = f"{path}.lock"
-    try:
-        with open(lock_path, "w", encoding="utf-8") as lf:
-            try:
-                fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-            except Exception:
-                pass
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_path, path)
-            try:
-                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
-    finally:
-        if os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+    """Escritura atómica — delega en el SSOT modules/state_store.atomic_write_json."""
+    from modules.state_store import atomic_write_json as _ss_write
+    _ss_write(path, data)
 
 from theme import (
     COLOR_BG_DARK, COLOR_BG_CARD, COLOR_BORDER, COLOR_PRIMARY_CYAN,
@@ -810,10 +787,20 @@ class TabMcpSkills(QWidget):
             opencode_cfg = {}
             if os.path.exists(OPENCODE_CONFIG):
                 try:
-                    with open(OPENCODE_CONFIG, "r", encoding="utf-8") as f:
-                        opencode_cfg = json.load(f)
-                except Exception:
-                    opencode_cfg = {}
+                    from modules.state_store import load_jsonc
+                    opencode_cfg = load_jsonc(OPENCODE_CONFIG)
+                except Exception as parse_exc:
+                    # Regla de seguridad: si la config existente no es parseable,
+                    # NUNCA sobreescribir (se perderían MCPs/providers del usuario).
+                    if not silent:
+                        QMessageBox.warning(
+                            self,
+                            "OpenCode no sincronizado",
+                            f"⚠️ No se pudo leer {OPENCODE_CONFIG} de forma segura "
+                            f"({parse_exc}). Se omite la sincronización para no "
+                            f"destruir la configuración existente."
+                        )
+                    return False
 
             if not opencode_cfg:
                 opencode_cfg = {
@@ -901,8 +888,13 @@ class TabMcpSkills(QWidget):
             with open(HERMES_CONFIG, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            if "mcp_servers:" in content:
-                content = content.split("mcp_servers:")[0].rstrip()
+            # Anclar al key top-level de YAML (inicio de línea, sin indentación)
+            # para no truncar por menciones del substring en comentarios o claves anidadas.
+            import re as _re
+            _mcp_top_re = _re.compile(r'(?m)^mcp_servers:\s*(#.*)?$')
+            match = _mcp_top_re.search(content)
+            if match:
+                content = content[:match.start()].rstrip()
             content = content.rstrip() + "\n" + "\n".join(mcp_block) + "\n"
 
             with open(HERMES_CONFIG, "w", encoding="utf-8") as f:

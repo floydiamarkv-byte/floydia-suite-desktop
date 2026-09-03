@@ -183,8 +183,8 @@ def load_env_vars() -> Dict[str, str]:
     env_vars = {}
     candidates = [
         ENV_FILE,
-        "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/.env",
-        "/home/tec/.secrets/antigravity.env",
+        os.path.expanduser("~/.config/floydia-suite/.env"),
+        os.path.expanduser("~/.secrets/antigravity.env"),
         os.path.join(WORKSPACE_ROOT, ".env")
     ]
     for path in candidates:
@@ -738,7 +738,7 @@ def probe_single_endpoint(item: Dict[str, Any], probe_cfg: Dict[str, Any], cance
                 return {"status": f"HTTP_{e.code}", "latency_ms": latency, "response_snippet": f"HTTP {e.code} Gateway / Upstream Error", "error": f"HTTP {e.code}"}
             return {"status": f"HTTP_{e.code}", "latency_ms": latency, "response_snippet": f"HTTP {e.code}", "error": str(e)[:30]}
 
-        except (TimeoutError, Exception) if False else TimeoutError:
+        except TimeoutError:
             latency = int((time.monotonic() - t_start) * 1000)
             return {"status": "TIMEOUT_ERR", "latency_ms": latency, "response_snippet": "Timeout de socket / Red agotada", "error": "Timeout"}
 
@@ -774,9 +774,10 @@ class ProbeWorker(CancellableThread):
         self.log_signal.emit(f"   🎯 Pregunta de prueba: \"{prompt_preview}\" (Max Tokens: {self.probe_cfg.get('max_tokens', 8)}, Timeout: {self.probe_cfg.get('timeout', 7)}s)")
         results = []
 
-        with ThreadPoolExecutor(max_workers=min(16, max(1, len(self.fleet)))) as executor:
+        executor = ThreadPoolExecutor(max_workers=min(16, max(1, len(self.fleet))))
+        try:
             futures = {
-                executor.submit(probe_single_endpoint, m, self.probe_cfg, self._cancel_event): m 
+                executor.submit(probe_single_endpoint, m, self.probe_cfg, self._cancel_event): m
                 for m in self.fleet
             }
             for future in as_completed(futures):
@@ -799,6 +800,13 @@ class ProbeWorker(CancellableThread):
                     err_item = {**m, "status": "ERROR", "latency_ms": 0, "response_snippet": str(e), "error": str(e)}
                     results.append(err_item)
                     self.model_updated.emit(err_item)
+        finally:
+            # No esperar a las tareas en vuelo: mueren por su propio timeout HTTP en
+            # hilos nativos de fondo, sin bloquear el QThread ni el cierre de la ventana.
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
 
         if not self.is_cancelled():
             self.finished_signal.emit(results)

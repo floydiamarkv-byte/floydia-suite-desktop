@@ -35,31 +35,36 @@ def find_workspace_root() -> str:
     while curr and curr != "/":
         if os.path.exists(os.path.join(curr, "SCRIPTS", "restart_nodes_config.json")):
             return curr
-        if os.path.exists(os.path.join(curr, ".env")) and os.path.exists(os.path.join(curr, "memory-bank")):
+        if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
             return curr
         curr = os.path.dirname(curr)
-    return "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS"
+    # Fallback seguro y portable: raíz del propio repo, nunca una ruta personal hardcodeada.
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
 SCRIPTS_DIR = os.path.join(WORKSPACE_ROOT, "SCRIPTS")
 if os.path.exists(SCRIPTS_DIR) and SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
-GLOBAL_SCRIPTS = "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS"
+GLOBAL_SCRIPTS = os.environ.get("FLOYDIA_GLOBAL_SCRIPTS", os.path.join(WORKSPACE_ROOT, "SCRIPTS"))
 if os.path.exists(GLOBAL_SCRIPTS) and GLOBAL_SCRIPTS not in sys.path:
     sys.path.insert(0, GLOBAL_SCRIPTS)
 
 def get_config_file_path() -> str:
+    safe_default = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "restart_nodes_config.json"
+    )
     candidates = [
         os.path.join(SCRIPTS_DIR, "restart_nodes_config.json"),
         os.path.join(GLOBAL_SCRIPTS, "restart_nodes_config.json"),
         os.path.join(WORKSPACE_ROOT, "cache", "restart_nodes_config.json"),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "restart_nodes_config.json")
+        safe_default
     ]
     for p in candidates:
         if os.path.exists(p):
             return p
-    return candidates[0]
+    # Primer arranque: usar SIEMPRE la ruta portable relativa al repo (candidato más seguro).
+    return safe_default
 
 CONFIG_FILE = get_config_file_path()
 
@@ -173,8 +178,8 @@ class DefaultRebootEngine:
     def load_env_safely():
         env_candidates = [
             os.path.join(WORKSPACE_ROOT, ".env"),
-            "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/.env",
-            "/home/tec/.secrets/antigravity.env"
+            os.path.expanduser("~/.config/floydia-suite/.env"),
+            os.path.expanduser("~/.secrets/antigravity.env")
         ]
         res = {}
         for env_p in env_candidates:
@@ -241,32 +246,9 @@ except ImportError:
 
 
 def atomic_json_write(path: str, data: Any) -> None:
-    """Escritura atómica con fcntl.flock."""
-    parent = os.path.dirname(os.path.abspath(path))
-    os.makedirs(parent, exist_ok=True)
-    temp_path = f"{path}.{os.getpid()}.tmp"
-    lock_path = f"{path}.lock"
-    try:
-        with open(lock_path, "w", encoding="utf-8") as lf:
-            try:
-                fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-            except Exception:
-                pass
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(temp_path, path)
-            try:
-                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
-    finally:
-        if os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+    """Escritura atómica — delega en el SSOT modules/state_store.atomic_write_json."""
+    from modules.state_store import atomic_write_json as _ss_write
+    _ss_write(path, data)
 
 from theme import (
     COLOR_BG_DARK, COLOR_BG_CARD, COLOR_BORDER, COLOR_PRIMARY_CYAN,
@@ -535,8 +517,7 @@ class TabReboot(QWidget):
         for idx, n in enumerate(self.nodes, 1):
             n["order"] = idx
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.nodes, f, indent=2, ensure_ascii=False)
+            atomic_json_write(CONFIG_FILE, self.nodes)
         except Exception as e:
             self.log_message(f"Error al guardar configuración: {e}", "ERROR")
 
