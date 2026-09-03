@@ -20,7 +20,8 @@ from PyQt6.QtWidgets import (
 from theme import (
     COLOR_BG_DARK, COLOR_BG_CARD, COLOR_BORDER, COLOR_PRIMARY_CYAN,
     COLOR_SECONDARY_BLUE, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING,
-    COLOR_TEXT_MAIN, COLOR_TEXT_MUTED, CancellableThread, stop_worker
+    COLOR_TEXT_MAIN, COLOR_TEXT_MUTED, CancellableThread, stop_worker,
+    is_worker_running
 )
 
 
@@ -55,26 +56,67 @@ class NetworkDiagWorker(CancellableThread):
     latencies_updated = pyqtSignal(dict)
     log_emitted = pyqtSignal(str)
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        self._is_cancelled = True
+        super().cancel()
+
+    def is_cancelled(self) -> bool:
+        return self._is_cancelled or super().is_cancelled()
+
     def run(self):
+        if self.is_cancelled() or sys.is_finalizing():
+            return
+
         targets = get_diag_targets()
-        
         res = {}
-        # Concurrencia real con ThreadPoolExecutor: 4 probes en paralelo
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_key = {
-                executor.submit(_probe_single_target, k, name, ip): k 
-                for k, (name, ip) in targets.items()
-            }
+        
+        executor = None
+        try:
+            # Concurrencia real con ThreadPoolExecutor: probes en paralelo con protección de apagado
+            executor = ThreadPoolExecutor(max_workers=4)
+            future_to_key = {}
+            for k, (name, ip) in targets.items():
+                if self.is_cancelled() or sys.is_finalizing():
+                    break
+                try:
+                    fut = executor.submit(_probe_single_target, k, name, ip)
+                    future_to_key[fut] = k
+                except RuntimeError:
+                    # Protección explícita Python 3.14: cannot schedule new futures after interpreter shutdown
+                    res[k] = {"name": name, "ip": ip, "lat": "Interrumpido", "alive": False}
+                    break
+                except Exception as exc:
+                    res[k] = {"name": name, "ip": ip, "lat": "Error", "alive": False, "err": str(exc)}
+
             for future in as_completed(future_to_key):
+                if self.is_cancelled() or sys.is_finalizing():
+                    break
                 try:
                     k, data = future.result()
                     res[k] = data
-                except Exception as exc:
-                    key = future_to_key[future]
-                    name, ip = targets[key]
-                    res[key] = {"name": name, "ip": ip, "lat": "Fallo", "alive": False}
+                except Exception:
+                    key = future_to_key.get(future)
+                    if key and key in targets:
+                        name, ip = targets[key]
+                        res[key] = {"name": name, "ip": ip, "lat": "Fallo", "alive": False}
+        except (RuntimeError, SystemExit):
+            return
+        finally:
+            if executor is not None:
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    pass
 
-        self.latencies_updated.emit(res)
+        if not self.is_cancelled() and not sys.is_finalizing():
+            try:
+                self.latencies_updated.emit(res)
+            except (RuntimeError, SystemExit):
+                pass
 
 
 class TabDiagnostics(QWidget):
@@ -171,6 +213,12 @@ class TabDiagnostics(QWidget):
         btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_clear.clicked.connect(lambda: self.log_console.clear())
         header_logs.addStretch()
+
+        btn_telemetry = QPushButton("📊 Telemetría SQLite")
+        btn_telemetry.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_telemetry.clicked.connect(self.show_telemetry)
+        header_logs.addWidget(btn_telemetry)
+
         header_logs.addWidget(btn_clear)
         logs_lay.addLayout(header_logs)
 
@@ -186,6 +234,21 @@ class TabDiagnostics(QWidget):
 
     def log(self, text: str):
         self.log_console.appendPlainText(text)
+
+    def show_telemetry(self):
+        """Ingiere el Action Journal del Cleaner y muestra el resumen agregado en SQLite."""
+        try:
+            from modules import telemetry as fl_tel
+            # El Action Journal vive en cache/ del workspace (mismo marker que tab_cleaner).
+            import os as _os
+            _ws = _os.environ.get("FLOYDIA_WORKSPACE", _os.getcwd())
+            aj = _os.path.join(_ws, "cache", "action_journal.jsonl")
+            ing = fl_tel.ingest_action_journal(aj)
+            self.log(f"✅ Telemetría: {ing.get('ingested', 0)} registros nuevos ingeridos.")
+            for line in fl_tel.summarize_text().splitlines():
+                self.log(line)
+        except Exception as exc:
+            self.log(f"❌ Telemetría: {exc}")
 
     def start_diag_timer(self):
         self.run_diag()
@@ -209,7 +272,13 @@ class TabDiagnostics(QWidget):
             self.worker = None
 
     def on_latencies_updated(self, results: dict):
+        try:
+            from modules import telemetry as fl_tel
+        except Exception:
+            fl_tel = None
         for k, info in results.items():
+            if fl_tel is not None:
+                fl_tel.record_diag(k, bool(info.get("alive")), str(info.get("lat", "")))
             if k in self.net_widgets:
                 w = self.net_widgets[k]
                 if info["alive"]:
@@ -228,4 +297,11 @@ class TabDiagnostics(QWidget):
             self.timer = None
         if self.worker is not None:
             stop_worker(self.worker, timeout_ms=1800)
-            self.worker = None
+            if not is_worker_running(self.worker):
+                self.worker = None
+
+    def wait_for_shutdown(self, timeout_ms: int = 2000) -> bool:
+        self.cleanup()
+        if self.worker is not None and self.worker.isRunning():
+            return self.worker.wait(timeout_ms)
+        return True

@@ -268,11 +268,13 @@ class FloydIASuiteApp(QMainWindow):
         # ⚡ Lazy Loading: Instanciar la pestaña únicamente en su primer acceso
         if self.tab_instances[index] is None:
             try:
-                tab_widget = self.tab_factories[index]()
+                tab_class = _load_tab_class(index)
+                tab_widget = tab_class()
                 self.tab_instances[index] = tab_widget
                 container = self.stack.widget(index)
                 container.layout().addWidget(tab_widget)
             except Exception as exc:
+                logger.exception("Error instanciando pestaña %s: %s", index, exc)
                 self.status_bar.showMessage(f"❌ Error cargando pestaña {index}: {exc}", 5000)
                 return
 
@@ -392,7 +394,7 @@ class FloydIASuiteApp(QMainWindow):
         modules = state.get("modules", {})
         for idx, key in enumerate(TAB_MODULE_KEYS):
             mod_data = modules.get(key)
-            if mod_data and self.tab_instances[idx] is not None:
+            if mod_data and self.tab_instances[idx] is not None and not isinstance(self.tab_instances[idx], type):
                 tab_obj = self.tab_instances[idx]
                 restore_hook = getattr(tab_obj, "restore_state", None)
                 if callable(restore_hook):
@@ -413,7 +415,7 @@ class FloydIASuiteApp(QMainWindow):
         }
         for idx, key in enumerate(TAB_MODULE_KEYS):
             tab_obj = self.tab_instances[idx]
-            if tab_obj is not None:
+            if tab_obj is not None and not isinstance(tab_obj, type):
                 save_hook = getattr(tab_obj, "save_state", None)
                 if callable(save_hook):
                     try:
@@ -434,7 +436,7 @@ class FloydIASuiteApp(QMainWindow):
 
         # FASE 1: Detener workers asíncronos
         for tab in self.tab_instances:
-            if tab is not None:
+            if tab is not None and not isinstance(tab, type):
                 hook = getattr(tab, "shutdown", None) or getattr(tab, "cleanup", None)
                 if callable(hook):
                     try:
@@ -446,7 +448,7 @@ class FloydIASuiteApp(QMainWindow):
         # Las pestañas pueden exponer wait_for_shutdown(timeout_ms) -> bool (contrato opcional).
         still_running = []
         for tab in self.tab_instances:
-            if tab is None:
+            if tab is None or isinstance(tab, type):
                 continue
             waiter = getattr(tab, "wait_for_shutdown", None)
             if callable(waiter):
@@ -513,9 +515,7 @@ def main():
         print("⚠️ Advertencia: módulos opcionales ausentes: " + ", ".join(_warnings))
         print("   Algunas pestañas (Cleaner/API) requieren:  pip install " + " ".join(_warnings))
 
-    app = QApplication(sys.argv)
-
-    # Política HiDPI explícita (BUG-08 Grok / FSU-016): escalado fraccional coherente.
+    # Política HiDPI explícita (BUG-08 Grok / FSU-016): debe configurarse estrictamente ANTES de instanciar QApplication.
     try:
         QApplication.setHighDpiScaleFactorRoundingPolicy(
             Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -523,6 +523,7 @@ def main():
     except Exception:
         pass
 
+    app = QApplication(sys.argv)
     app.setStyleSheet(FLOYDIA_SUITE_QSS)
     
     window = FloydIASuiteApp(initial_tab=init_tab)

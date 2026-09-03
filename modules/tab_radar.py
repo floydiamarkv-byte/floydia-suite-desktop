@@ -871,6 +871,11 @@ class ProbeWorker(CancellableThread):
                     full_item = {**m, **res}
                     results.append(full_item)
                     self.model_updated.emit(full_item)
+                    try:
+                        from modules import telemetry as fl_tel
+                        fl_tel.record_probe_result(full_item)
+                    except Exception:
+                        pass
                     st = res.get("status", "ERR")
                     lat = f"{res.get('latency_ms', 0)} ms" if res.get("latency_ms", 0) > 0 else "-"
                     tps_str = f" • {res.get('tps', 0)} TPS" if res.get('tps', 0) > 0 else ""

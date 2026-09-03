@@ -1,0 +1,28 @@
+# Flatpak manifest (starter) — FloydIA Suite 2.0
+# ⚠️ REQUIERE PERMISOS DE FILESYSTEM para configs de agentes (por portal o --filesystem=home).
+#    Este manifest es un punto de partida: revisar con flatpak-builder antes de publicar.
+app-id: com.floydiasuite.FloydIASuite
+runtime: org.kde.Platform
+runtime-version: '6.6'
+sdk: org.kde.Sdk
+command: floydia-suite
+finish-args:
+  - --share=network
+  - --socket=x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=home
+modules:
+  - name: floydia-suite
+    buildsystem: simple
+    sources:
+      - type: git
+        url: https://github.com/floydiamarkv-byte/floydia-suite-desktop.git
+        branch: main
+    build-commands:
+      - install -d /app/bin /app/share/floydia-suite/modules
+      - cp -r floydia_suite_app.py theme.py requirements.txt README.md /app/share/floydia-suite/
+      - cp -r modules/*.py /app/share/floydia-suite/modules/
+      - cp packaging/floydia-suite.desktop /app/share/floydia-suite/
+      - cp assets/icon.png /app/share/floydia-suite/ 2>/dev/null || true
+      - install -Dm755 packaging/flatpak-launcher.sh /app/bin/floydia-suite
