@@ -3524,3 +3524,7 @@ fallback_model:
         self.discovery_worker = None
         self.sync_worker = None
 
+    def wait_for_shutdown(self, timeout_ms: int = 2000) -> bool:
+        """Contrato FSU-002: cleanup() ya esperó por cada worker de forma determinista."""
+        return True
+

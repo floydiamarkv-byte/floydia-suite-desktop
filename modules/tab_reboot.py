@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 from theme import (
     COLOR_BG_DARK, COLOR_BG_CARD, COLOR_BORDER, COLOR_PRIMARY_CYAN,
     COLOR_SECONDARY_BLUE, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING,
-    COLOR_TEXT_MAIN, COLOR_TEXT_MUTED, CancellableThread, stop_worker
+    COLOR_TEXT_MAIN, COLOR_TEXT_MUTED, CancellableThread, stop_worker, is_worker_running
 )
 
 import socket
@@ -811,4 +811,14 @@ class TabReboot(QWidget):
         if self.worker is not None:
             stop_worker(self.worker, timeout_ms=1800)
             self.worker = None
+
+    def wait_for_shutdown(self, timeout_ms: int = 2000) -> bool:
+        """Contrato FSU-002: verificación pasiva de que el worker activo terminó."""
+        if self.worker is None:
+            return True
+        try:
+            return not is_worker_running(self.worker)
+        except RuntimeError:
+            # El objeto C++ subyacente ya fue destruido: worker terminado.
+            return True
 

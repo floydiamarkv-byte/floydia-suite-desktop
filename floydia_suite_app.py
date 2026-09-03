@@ -35,15 +35,18 @@ from theme import (
     COLOR_TEXT_MUTED
 )
 from modules.state_store import atomic_read_json, atomic_write_json, utc_now_iso
-from modules.tab_reboot import TabReboot
-from modules.tab_optimizer import TabOptimizer
-from modules.tab_mcp_skills import TabMcpSkills
-from modules.tab_radar import TabRadar
-from modules.tab_api_manager import TabApiManager
-from modules.tab_diagnostics import TabDiagnostics
-from modules.tab_cleaner import TabCleaner
 
-SESSION_STATE_FILE = os.path.join(SUITE_DIR, "cache", "session_state.json")
+# Lazy Loading REAL (FSU-016): los módulos de pestañas solo se importan en su primer
+# acceso. El cold start ya no paga el import de las pestañas pesadas (radar, cleaner).
+TAB_SPECS = [
+    ("modules.tab_reboot", "TabReboot"),
+    ("modules.tab_optimizer", "TabOptimizer"),
+    ("modules.tab_cleaner", "TabCleaner"),
+    ("modules.tab_mcp_skills", "TabMcpSkills"),
+    ("modules.tab_radar", "TabRadar"),
+    ("modules.tab_api_manager", "TabApiManager"),
+    ("modules.tab_diagnostics", "TabDiagnostics"),
+]
 
 TAB_MODULE_KEYS = [
     "tab_reboot",
@@ -54,6 +57,16 @@ TAB_MODULE_KEYS = [
     "tab_api_manager",
     "tab_diagnostics"
 ]
+
+
+def _load_tab_class(index: int):
+    """Import diferido de la clase de una pestaña (lazy import real)."""
+    import importlib
+    module_name, class_name = TAB_SPECS[index]
+    module = importlib.import_module(module_name)
+    return getattr(module, class_name)
+
+SESSION_STATE_FILE = os.path.join(SUITE_DIR, "cache", "session_state.json")
 
 
 class FloydIASuiteApp(QMainWindow):
@@ -69,13 +82,7 @@ class FloydIASuiteApp(QMainWindow):
         self.nav_buttons = []
         self.tab_instances = [None] * len(TAB_MODULE_KEYS)
         self.tab_factories = [
-            lambda: TabReboot(),
-            lambda: TabOptimizer(),
-            lambda: TabCleaner(),
-            lambda: TabMcpSkills(),
-            lambda: TabRadar(),
-            lambda: TabApiManager(),
-            lambda: TabDiagnostics()
+            (lambda i=i: _load_tab_class(i)) for i in range(len(TAB_SPECS))
         ]
         self.init_ui(initial_tab)
         self.restore_session_state(initial_tab)
@@ -417,6 +424,22 @@ class FloydIASuiteApp(QMainWindow):
                         hook()
                     except Exception as exc:
                         logger.warning("Error en shutdown de %s: %s", type(tab).__name__, exc)
+
+        # FASE 1b: Barrera de espera (FSU-002) — verificar terminación efectiva de workers.
+        # Las pestañas pueden exponer wait_for_shutdown(timeout_ms) -> bool (contrato opcional).
+        still_running = []
+        for tab in self.tab_instances:
+            if tab is None:
+                continue
+            waiter = getattr(tab, "wait_for_shutdown", None)
+            if callable(waiter):
+                try:
+                    if not waiter(2000):
+                        still_running.append(type(tab).__name__)
+                except Exception as exc:
+                    logger.warning("Error en wait_for_shutdown de %s: %s", type(tab).__name__, exc)
+        if still_running:
+            logger.warning("Workers no detenidos tras el cierre: %s", ", ".join(still_running))
 
         # FASE 2 & 3: Recopilar y guardar estado de sesión atómicamente
         try:
