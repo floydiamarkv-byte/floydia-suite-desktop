@@ -315,9 +315,11 @@ CURATED_FLEET = [
     {"id": "deepseek/deepseek-r1", "name": "[C7] DeepSeek R1 Global Hub", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
     {"id": "deepseek/deepseek-chat", "name": "[C7] DeepSeek V3 Global Hub", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Paid", "category": "frontier"},
 
-    # NVIDIA NIM [C7], [C1], [C2]
-    {"id": "deepseek-ai/deepseek-v4-flash-0731", "name": "[C1] DeepSeek V4 Flash (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
-    {"id": "moonshotai/kimi-k3", "name": "[C2] Kimi K3 Frontier (NIM)", "account_tag": "C2", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C2_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
+    # NVIDIA NIM [C7], [C1]
+    {"id": "deepseek-ai/deepseek-v4-flash-0731", "name": "[C7] DeepSeek V4 Flash (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "c1/deepseek-ai/deepseek-v4-flash-0731", "name": "[C1] DeepSeek V4 Flash (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "moonshotai/kimi-k3", "name": "[C7] Kimi K3 Frontier (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C2_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "c1/moonshotai/kimi-k3", "name": "[C1] Kimi K3 Frontier (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
     {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[C7] Nemotron 3 Nano NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
     {"id": "nvidia/nemotron-3-super-120b-a12b", "name": "[C7] Nemotron 3 Super 120B NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
 
@@ -1150,23 +1152,25 @@ class CatalogDiscoveryWorker(CancellableThread):
                         data = json.loads(resp.read().decode("utf-8"))
                         raw_models = data.get("data", [])
 
+                        seen_nvidia = set()
                         for m in raw_models:
                             if self.is_cancelled():
                                 return
                             m_id = m.get("id", "")
-                            if not m_id or m_id in seen_ids:
+                            if not m_id or m_id in seen_nvidia:
                                 continue
 
-                            ctx = 131072 if "128k" in m_id else (262144 if "nemotron" in m_id else 32768)
+                            ctx = 131072 if "128k" in m_id else (262144 if ("nemotron" in m_id or "kimi" in m_id) else 32768)
                             if ctx < min_ctx:
                                 continue
 
                             m_id_lower = m_id.lower()
-                            if mode == "code" and not any(k in m_id_lower for k in ["code", "coder", "starcoder"]):
+                            if mode == "code" and not any(k in m_id_lower for k in ["code", "coder", "starcoder", "flash"]):
                                 continue
                             if mode == "context_128k" and ctx < 128000:
                                 continue
 
+                            m_cat = "code" if any(k in m_id_lower for k in ["code", "coder", "flash"]) else ("frontier" if any(k in m_id_lower for k in ["kimi", "nemotron", "llama", "deepseek"]) else "nim")
                             discovered.append({
                                 "id": m_id,
                                 "name": f"NVIDIA {m_id.split('/')[-1]}",
@@ -1176,12 +1180,12 @@ class CatalogDiscoveryWorker(CancellableThread):
                                 "key": self.nvidia_key,
                                 "context": ctx,
                                 "badge": f"NIM • {ctx // 1000}k",
-                                "category": "nim",
+                                "category": m_cat,
                                 "status": "⚪ Sin probar",
                                 "latency_ms": 0,
                                 "response_snippet": "NVIDIA NIM Dedicated Endpoint"
                             })
-                            seen_ids.add(m_id)
+                            seen_nvidia.add(m_id)
                 except Exception as exc:
                     errors.append(f"NVIDIA: {exc}")
 
@@ -2140,7 +2144,6 @@ class TabRadar(QWidget):
             ("OpenCode", "OpenCode Desktop/CLI"),
             ("Hermes", "Hermes Agent"),
             ("DSH", "DeepSeek Harness"),
-            ("Claude", "Claude Code CLI"),
         ]
 
         agents_lay = QHBoxLayout()
@@ -2680,15 +2683,23 @@ class TabRadar(QWidget):
     def _on_discovery_finished(self, discovered_models: list, replace: bool, msg: str):
         self.btn_discover_global.setEnabled(True)
         if replace:
-            # Preservar la base curada (DeepSeek, Mistral, Google, Groq) para no perder cuentas
+            # Preservar la base curada (DeepSeek, Mistral, Google, Groq, NVIDIA) para no perder cuentas
             curated_base = {m["id"]: dict(m) for m in CURATED_FLEET}
             for m in discovered_models:
-                curated_base[m["id"]] = dict(m)
+                m_id = m["id"]
+                # Si el modelo curado es de un proveedor nativo directo (nvidia, deepseek, mistral, google)
+                # y el descubierto viene de openrouter (agregador), conservar el endpoint directo nativo
+                if m_id in curated_base and curated_base[m_id].get("provider") != "openrouter" and m.get("provider") == "openrouter":
+                    continue
+                curated_base[m_id] = dict(m)
             self.table_models_map = curated_base
         else:
             for m in discovered_models:
-                if m["id"] not in self.table_models_map:
-                    self.table_models_map[m["id"]] = dict(m)
+                m_id = m["id"]
+                if m_id not in self.table_models_map:
+                    self.table_models_map[m_id] = dict(m)
+                elif self.table_models_map[m_id].get("provider") == "openrouter" and m.get("provider") == "nvidia":
+                    self.table_models_map[m_id] = dict(m)
 
         self.populate_table()
         self.update_kpi_dashboard()

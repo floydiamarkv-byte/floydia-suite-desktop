@@ -29,10 +29,6 @@ Permite que NotebookLM actúe como la Base de Verdad Absoluta (Ground Truth) par
 - **Dominio**: Anti-patrones vetados (#vetado: búsqueda ciega, evasión de compuerta, certificación sin hash/screenshot, bucles infinitos, fuga de secretos), tabla de lecciones históricas (L07 a L33) y matriz de enrutamiento por tiers.
 - **Tokens aprox**: ~3.000 tokens.
 
-### 📄 [Fuente 5: Integración de Claude Code CLI, Multi-Proveedor y Servidores MCP Remotos](file:///home/tec/Dropbox/ANTIGRAVITY_PROJECTS/FLOYDIA/SUBTOOLS/FLOYDIA_SUITE_2.0/notebooklm_pack/FUENTE_5_CLAUDE_CODE_Y_MCP_INTEGRATION.md)
-- **Dominio**: Claude Code CLI v2.1.251, inyección segura on-demand con `launch_claude.sh`, redirección multi-proveedor (OpenRouter, DeepSeek, AeroLink), paridad en 5 agentes vía `mcp-select` y servidor MCP WordPress remote `@automattic/mcp-wordpress-remote` (Coquita Crochet).
-- **Tokens aprox**: ~2.200 tokens.
-
 ---
 
 ## 🚀 Guía de Carga Rápida en NotebookLM (1-Click)
@@ -41,10 +37,9 @@ Permite que NotebookLM actúe como la Base de Verdad Absoluta (Ground Truth) par
    - ⚡ **Cuaderno 8**: [FLOYDIA_SUITE_MASTER](https://notebooklm.google.com/notebook/9faad439-abed-4308-9ea6-52e3a1a5732c)
    - 🛸 **Cuaderno 10**: [AGENTS_HARNESS_ENGINEERING](https://notebooklm.google.com/notebook/agents-harness-research-v1)
 3. Selecciona **"Add sources" (Añadir fuentes) ➔ "Upload files" (Subir archivos)**.
-4. Selecciona los 5 archivos `.md` de esta carpeta:
+4. Selecciona los 4 archivos `.md` de esta carpeta:
    - `FUENTE_1_ARQUITECTURA_FLOYDIA_SUITE_2.0.md`
    - `FUENTE_2_HARNESS_ENGINEERING_FRAMEWORKS.md`
    - `FUENTE_3_ORQUESTACION_MULTI_AGENTE_LOCAL.md`
    - `FUENTE_4_CATALOGO_ANTI_PATRONES_LECCIONES_APRENDIDAS.md`
-   - `FUENTE_5_CLAUDE_CODE_Y_MCP_INTEGRATION.md`
 5. El cuaderno estará 100% indexado para responder con citaciones exactas y grounding matemático.
