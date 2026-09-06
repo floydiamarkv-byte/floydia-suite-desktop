@@ -4,7 +4,7 @@
 ║  🔑 FLOYDIA SUITE 2.0 — Pestaña: Gestor de APIs, Endpoints & Propagación Agéntica ║
 ║  Administración centralizada multi-cuenta [C1..C8] de proveedores LLM           ║
 ║  (Google, OpenRouter, NVIDIA NIM, DeepSeek, Mistral, Groq, Z.AI, Ollama, etc.). ║
-║  Propagación determinista 1-clic: OpenCode, Hermes, DeepSeek (DSH), Zed, .env.   ║
+║  Propagación determinista 1-clic: OpenCode, Hermes, DeepSeek (DSH), .env.        ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -56,8 +56,7 @@ OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.
 OPENCODE_SSOT = os.path.expanduser("~/.opencode/opencode.jsonc")
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
-ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
-DSH_CONFIG = os.path.expanduser("~/.dsh/settings.yaml")
+DSH_CONFIG = os.path.join(WORKSPACE_ROOT, ".dsh", "settings.yaml")
 SYNC_MODELS_ALL_SCRIPT = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "sync_models_all.sh")
 SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 EXPORT_REMOTE_KEYS_SCRIPT = os.path.join(CACHE_DIR, "export_remote_keys.sh")
@@ -958,34 +957,7 @@ fallback_model:
             results["Hermes"] = False
             self.log_signal.emit(f"  ❌ Error en Hermes: {e}")
 
-        # 3. Zed Editor (~/.config/zed/settings.json)
-        try:
-            self._backup_file(ZED_CONFIG)
-            if os.path.exists(ZED_CONFIG):
-                with open(ZED_CONFIG, "r", encoding="utf-8") as f:
-                    zed_data = json.load(f)
-            else:
-                zed_data = {}
-
-            if "agent" not in zed_data:
-                zed_data["agent"] = {}
-
-            zed_data["agent"]["default_model"] = {
-                "effort": "high",
-                "enable_thinking": True,
-                "provider": "openrouter",
-                "model": "minimax/minimax-m3:free"
-            }
-            os.makedirs(os.path.dirname(ZED_CONFIG), exist_ok=True)
-            with open(ZED_CONFIG, "w", encoding="utf-8") as f:
-                json.dump(zed_data, f, indent=2)
-            results["Zed"] = True
-            self.log_signal.emit("  ✅ Zed Editor sincronizado exitosamente.")
-        except Exception as e:
-            results["Zed"] = False
-            self.log_signal.emit(f"  ❌ Error en Zed: {e}")
-
-        # 4. Sincronización .env y Custom APIs Cache
+        # 3. Sincronización .env y Custom APIs Cache
         try:
             sanitized_list = [sanitize_api_for_disk(a) for a in self.apis]
             atomic_json_write(APIS_CONFIG_FILE, sanitized_list)
@@ -1392,7 +1364,7 @@ class DeepSeekExportDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(10)
 
-        lbl_t = QLabel("Configuración Multi-Cuenta DeepSeek (OpenCode / Hermes / Zed)")
+        lbl_t = QLabel("Configuración Multi-Cuenta DeepSeek (OpenCode / Hermes / DSH)")
         lbl_t.setFont(QFont("Inter", 13, QFont.Weight.Bold))
         lbl_t.setStyleSheet("color: #38BDF8;")
         layout.addWidget(lbl_t)
@@ -1518,7 +1490,7 @@ class TabApiManager(QWidget):
         title.setFont(QFont("Inter", 14, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {COLOR_PRIMARY_CYAN};")
 
-        subtitle = QLabel("Gestión centralizada multi-cuenta [C1..C8] con propagación 1-clic a OpenCode, Hermes, Zed y .env")
+        subtitle = QLabel("Gestión centralizada multi-cuenta [C1..C8] con propagación 1-clic a OpenCode, Hermes, DSH y .env")
         subtitle.setFont(QFont("Inter", 9))
         subtitle.setStyleSheet(f"color: {COLOR_TEXT_MUTED};")
         title_box.addWidget(title)
@@ -1686,11 +1658,6 @@ class TabApiManager(QWidget):
         btn_sync_hermes.setObjectName("SecondaryBtn")
         btn_sync_hermes.clicked.connect(lambda: self.sync_single_target("hermes"))
         agents_row.addWidget(btn_sync_hermes)
-
-        btn_sync_zed = QPushButton("📝 Zed Editor")
-        btn_sync_zed.setObjectName("SecondaryBtn")
-        btn_sync_zed.clicked.connect(lambda: self.sync_single_target("zed"))
-        agents_row.addWidget(btn_sync_zed)
 
         btn_sync_dsh = QPushButton("🤖 DeepSeek (DSH)")
         btn_sync_dsh.setObjectName("SecondaryBtn")
@@ -2092,14 +2059,6 @@ class TabApiManager(QWidget):
             except Exception as e:
                 self.log(f"\u274c Error en Hermes: {e}")
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar Hermes: {e}")
-        elif target == "zed":
-            try:
-                self._propagate_to_zed()
-                self.log("\u2705 Zed Editor sincronizado individualmente.")
-                QMessageBox.information(self, "Zed", "\u2705 Configuración propagada a Zed Editor.")
-            except Exception as e:
-                self.log(f"\u274c Error en Zed: {e}")
-                QMessageBox.critical(self, "Error", f"No se pudo sincronizar Zed: {e}")
         elif target == "dsh":
             try:
                 self._propagate_to_dsh()
@@ -2328,28 +2287,6 @@ fallback_model:
             "deepseek": {"fp": "deepseek-curated-v4", "at": time.time(), "models": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]}
         }
         atomic_json_write(HERMES_CACHE, hermes_clean_cache)
-
-    def _propagate_to_zed(self):
-        """Propaga configuración solo a Zed Editor."""
-        self._backup_file_local(ZED_CONFIG)
-        if os.path.exists(ZED_CONFIG):
-            with open(ZED_CONFIG, "r", encoding="utf-8") as f:
-                zed_data = json.load(f)
-        else:
-            zed_data = {}
-
-        if "agent" not in zed_data:
-            zed_data["agent"] = {}
-
-        zed_data["agent"]["default_model"] = {
-            "effort": "high",
-            "enable_thinking": True,
-            "provider": "openrouter",
-            "model": "minimax/minimax-m3:free"
-        }
-        os.makedirs(os.path.dirname(ZED_CONFIG), exist_ok=True)
-        with open(ZED_CONFIG, "w", encoding="utf-8") as f:
-            json.dump(zed_data, f, indent=2)
 
     def _update_single_api_row(self, api_id: str, res: dict):
         """Actualiza solo la fila específica en la tabla sin reconstruir todo."""

@@ -106,9 +106,7 @@ except ImportError:
 MCP_CONFIG_PATH = os.environ.get("MCP_CONFIG_PATH", os.path.expanduser("~/.gemini/config/mcp_config.json"))
 MCP_BACKUP_PATH = os.path.expanduser("~/.gemini/config/mcp_config.json.bak")
 OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
-ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
-QODER_CONFIG = os.environ.get("QODER_CONFIG_PATH", os.path.expanduser("~/.qoder/settings.json"))
 DSH_CONFIG = os.path.expanduser("~/.dsh/profiles/web/cordis.patch.yml")
 SKILLS_DIR = os.path.join(WORKSPACE_ROOT, ".agents", "skills")
 SKILLS_ARCHIVE_DIR = os.path.join(SKILLS_DIR, "_archive")
@@ -466,7 +464,7 @@ class TabMcpSkills(QWidget):
         self.btn_propagate_all_mcps = QPushButton("🚀 Propagación Atómica 1-Clic")
         self.btn_propagate_all_mcps.setObjectName("SecondaryBtn")
         self.btn_propagate_all_mcps.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_propagate_all_mcps.setToolTip("Propaga los MCPs activos a todos los agentes: Antigravity, OpenCode, Zed, Hermes, Qoder y DSH")
+        self.btn_propagate_all_mcps.setToolTip("Propaga los MCPs activos a todos los agentes activos: Antigravity, OpenCode, Hermes y DSH")
         self.btn_propagate_all_mcps.clicked.connect(lambda: self.propagate_mcps_all_agents(silent=False))
         top_card_lay.addWidget(self.btn_propagate_all_mcps)
 
@@ -919,57 +917,6 @@ class TabMcpSkills(QWidget):
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con OpenCode: {e}")
             return False
 
-    def sync_mcps_to_zed(self, silent: bool = False) -> bool:
-        """Propaga los servidores MCP activos hacia ~/.config/zed/settings.json (context_servers)."""
-        try:
-            if not os.path.exists(ZED_CONFIG):
-                return False
-
-            with open(ZED_CONFIG, "r", encoding="utf-8") as f:
-                zed_data = json.load(f)
-
-            ctx_servers = zed_data.setdefault("context_servers", {})
-            active_servers = self._get_active_mcp_specs()
-
-            # Mapear nombres canónicos en Zed
-            new_ctx = {}
-            for name, srv in active_servers:
-                key = "obsidian" if name in ("obsidian-mcp", "obsidian") else name
-                if key == "novamira-mcp":
-                    key = "novamira"
-                entry = {
-                    "command": srv.get("command", ""),
-                    "args": srv.get("args", [])
-                }
-                if key == "stitch":
-                    entry["source"] = "custom"
-                new_ctx[key] = entry
-
-            # Fusión no destructiva (FSU-008): preserva context_servers manuales.
-            from modules.state_store import (
-                load_managed_registry, merge_managed_section, save_managed_registry
-            )
-            registry = load_managed_registry()
-            merged_ctx, _managed_now = merge_managed_section(
-                zed_data.get("context_servers", {}) or {}, new_ctx, "zed", registry
-            )
-            zed_data["context_servers"] = merged_ctx
-            _backup_config_file(ZED_CONFIG)
-            atomic_json_write(ZED_CONFIG, zed_data)
-            save_managed_registry(registry)
-
-            if not silent:
-                QMessageBox.information(
-                    self,
-                    "Zed MCP Sincronizado",
-                    f"✅ Sincronizados exitosamente {len(new_ctx)} context_servers en Zed Editor:\n{ZED_CONFIG}"
-                )
-            return True
-        except Exception as e:
-            if not silent:
-                QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con Zed: {e}")
-            return False
-
     def sync_mcps_to_hermes(self, silent: bool = False) -> bool:
         """Propaga los servidores MCP activos hacia ~/.hermes/config.yaml."""
         try:
@@ -1012,50 +959,6 @@ class TabMcpSkills(QWidget):
         except Exception as e:
             if not silent:
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con Hermes: {e}")
-            return False
-
-    def sync_mcps_to_qoder(self, silent: bool = False) -> bool:
-        """Propaga los servidores MCP activos hacia ~/.qoder/settings.json."""
-        try:
-            if not os.path.exists(QODER_CONFIG):
-                return False
-
-            with open(QODER_CONFIG, "r", encoding="utf-8") as f:
-                qoder_data = json.load(f)
-
-            active_servers = self._get_active_mcp_specs()
-            new_servers = {}
-            for name, srv in active_servers:
-                entry = {"command": srv.get("command", "")}
-                if srv.get("args"):
-                    entry["args"] = srv.get("args")
-                if srv.get("env"):
-                    entry["env"] = srv.get("env")
-                new_servers[name] = entry
-
-            # Fusión no destructiva (FSU-008): preserva mcpServers manuales.
-            from modules.state_store import (
-                load_managed_registry, merge_managed_section, save_managed_registry
-            )
-            registry = load_managed_registry()
-            merged_servers, _managed_now = merge_managed_section(
-                qoder_data.get("mcpServers", {}) or {}, new_servers, "qoder", registry
-            )
-            qoder_data["mcpServers"] = merged_servers
-            _backup_config_file(QODER_CONFIG)
-            atomic_json_write(QODER_CONFIG, qoder_data)
-            save_managed_registry(registry)
-
-            if not silent:
-                QMessageBox.information(
-                    self,
-                    "Qoder MCP Sincronizado",
-                    f"✅ Sincronizados exitosamente {len(new_servers)} servidores MCP en Qoder:\n{QODER_CONFIG}"
-                )
-            return True
-        except Exception as e:
-            if not silent:
-                QMessageBox.critical(self, "Error", f"No se pudo sincronizar MCPs con Qoder: {e}")
             return False
 
     def sync_mcps_to_dsh(self, silent: bool = False) -> bool:
@@ -1156,11 +1059,8 @@ class TabMcpSkills(QWidget):
         else:
             results["Antigravity IDE"] = False
 
-        # 2. Clientes locales
         results["OpenCode"] = self.sync_mcps_to_opencode(silent=True)
-        results["Zed Editor"] = self.sync_mcps_to_zed(silent=True)
         results["Hermes"] = self.sync_mcps_to_hermes(silent=True)
-        results["Qoder"] = self.sync_mcps_to_qoder(silent=True)
         results["DeepSeek Harness"] = self.sync_mcps_to_dsh(silent=True)
 
         if not silent:
@@ -1199,7 +1099,7 @@ class TabMcpSkills(QWidget):
                 "Configuración Guardada y Propagada",
                 f"✅ mcp_config.json actualizado exitosamente.\n\n"
                 f"• MCPs Activos: {active_cnt}\n"
-                f"• Sincronizado con: Antigravity, OpenCode, Zed, Hermes, Qoder y DSH\n"
+                f"• Sincronizado con: Antigravity, OpenCode, Hermes y DSH\n"
                 f"• Backup generado: {MCP_BACKUP_PATH}"
             )
         except Exception as e:

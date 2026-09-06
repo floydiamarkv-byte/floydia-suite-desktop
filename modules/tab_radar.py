@@ -73,7 +73,6 @@ ENV_FILE = os.path.join(WORKSPACE_ROOT, ".env")
 OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
-ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
 REPORTS_DIR = os.path.join(WORKSPACE_ROOT, "reports")
 CACHE_DIR = os.path.join(WORKSPACE_ROOT, "cache")
 SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
@@ -2046,11 +2045,6 @@ class TabRadar(QWidget):
         btn_sync_herm.clicked.connect(self.sync_to_hermes)
         sync_row.addWidget(btn_sync_herm)
 
-        btn_sync_z = QPushButton("📝 Zed Editor")
-        btn_sync_z.setObjectName("SecondaryBtn")
-        btn_sync_z.clicked.connect(self.sync_to_zed)
-        sync_row.addWidget(btn_sync_z)
-
         btn_sync_dsh = QPushButton("🤖 DeepSeek Harness")
         btn_sync_dsh.setObjectName("SecondaryBtn")
         btn_sync_dsh.setToolTip("Sincroniza configuración y modelos con DeepSeek Harness (~/.dsh/settings.yaml)")
@@ -2145,8 +2139,6 @@ class TabRadar(QWidget):
             ("Antigravity", "Antigravity IDE"),
             ("OpenCode", "OpenCode Desktop/CLI"),
             ("Hermes", "Hermes Agent"),
-            ("Zed", "Zed Editor"),
-            ("Qoder", "Qoder IDE"),
             ("DSH", "DeepSeek Harness"),
             ("Claude", "Claude Code CLI"),
         ]
@@ -3039,12 +3031,11 @@ class TabRadar(QWidget):
                 pass
 
     def sync_all_agents(self):
-        """Ejecuta la propagación unificada en 1-clic a OpenCode, DeepSeek Harness, Hermes y Zed."""
-        self.log("🚀 Iniciando propagación 1-Clic a todos los agentes desde AI Radar...")
+        """Ejecuta la propagación unificada en 1-clic a OpenCode, DeepSeek Harness y Hermes."""
+        self.log("🚀 Iniciando propagación 1-Clic a todos los agentes activos desde AI Radar...")
         ok_opencode = False
         ok_dsh = False
         ok_hermes = False
-        ok_zed = False
 
         try:
             self.sync_to_opencode(silent=True)
@@ -3064,17 +3055,10 @@ class TabRadar(QWidget):
         except Exception as e:
             self.log(f"  ❌ Error Hermes: {e}")
 
-        try:
-            self.sync_to_zed(silent=True)
-            ok_zed = True
-        except Exception as e:
-            self.log(f"  ❌ Error Zed: {e}")
-
         summary = (
             f"• OpenCode (~/.config/opencode/opencode.jsonc): {'✅ OK' if ok_opencode else '❌ Error'}\n"
             f"• DeepSeek Harness (~/.dsh/settings.yaml): {'✅ OK' if ok_dsh else '❌ Error'}\n"
-            f"• Hermes Agent (~/.hermes/config.yaml): {'✅ OK' if ok_hermes else '❌ Error'}\n"
-            f"• Zed Editor (~/.config/zed/settings.json): {'✅ OK' if ok_zed else '❌ Error'}"
+            f"• Hermes Agent (~/.hermes/config.yaml): {'✅ OK' if ok_hermes else '❌ Error'}"
         )
         self.log("✅ Propagación 1-Clic finalizada.")
         QMessageBox.information(self, "Propagación 1-Clic Completa", f"✅ Telemetría y modelos propagados a todos los agentes:\n\n{summary}")
@@ -3535,36 +3519,6 @@ fallback_model:
             self.log(f"❌ Error sincronizando Hermes: {e}")
             if not silent:
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar Hermes: {e}")
-
-    def sync_to_zed(self, silent: bool = False):
-        try:
-            self._backup_file(ZED_CONFIG)
-            if os.path.exists(ZED_CONFIG):
-                with open(ZED_CONFIG, "r", encoding="utf-8") as f:
-                    zed_data = json.load(f)
-            else:
-                zed_data = {}
-
-            if "agent" not in zed_data:
-                zed_data["agent"] = {}
-
-            zed_data["agent"]["default_model"] = {
-                "effort": "high",
-                "enable_thinking": True,
-                "provider": "openrouter",
-                "model": "minimax/minimax-m3:free"
-            }
-            os.makedirs(os.path.dirname(ZED_CONFIG), exist_ok=True)
-            with open(ZED_CONFIG, "w", encoding="utf-8") as f:
-                json.dump(zed_data, f, indent=2)
-
-            self.log("📝 Configuración de Zed Editor sincronizada con claves del entorno.")
-            if not silent:
-                QMessageBox.information(self, "Zed Editor", "✅ Claves de entorno y proveedores sincronizados para Zed Editor.")
-        except Exception as e:
-            self.log(f"❌ Error en Zed: {e}")
-            if not silent:
-                QMessageBox.critical(self, "Error", f"No se pudo sincronizar Zed Editor: {e}")
 
     def cleanup(self):
         """Detiene y espera workers de forma determinista y cooperativa sin terminate()."""
