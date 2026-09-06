@@ -31,24 +31,42 @@ import socket
 import subprocess
 
 def find_workspace_root() -> str:
+    # 1. Buscar hacia arriba si algún directorio ancestro contiene SCRIPTS/restart_workspace_engine.py
+    curr = os.path.abspath(__file__)
+    while curr and curr != "/":
+        if os.path.exists(os.path.join(curr, "SCRIPTS", "restart_workspace_engine.py")):
+            return curr
+        curr = os.path.dirname(curr)
+
+    # 2. Buscar hacia arriba si contiene SCRIPTS/restart_nodes_config.json
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
         if os.path.exists(os.path.join(curr, "SCRIPTS", "restart_nodes_config.json")):
             return curr
-        if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
-            return curr
         curr = os.path.dirname(curr)
-    # Fallback seguro y portable: raíz del propio repo, nunca una ruta personal hardcodeada.
+
+    # 3. Revisar ruta expandida del workspace estándar
+    ws_candidate = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS")
+    if os.path.exists(os.path.join(ws_candidate, "SCRIPTS", "restart_workspace_engine.py")):
+        return ws_candidate
+
+    # 4. Fallback seguro y portable: raíz del propio repo
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
 SCRIPTS_DIR = os.path.join(WORKSPACE_ROOT, "SCRIPTS")
-if os.path.exists(SCRIPTS_DIR) and SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, SCRIPTS_DIR)
 
-GLOBAL_SCRIPTS = os.environ.get("FLOYDIA_GLOBAL_SCRIPTS", os.path.join(WORKSPACE_ROOT, "SCRIPTS"))
-if os.path.exists(GLOBAL_SCRIPTS) and GLOBAL_SCRIPTS not in sys.path:
-    sys.path.insert(0, GLOBAL_SCRIPTS)
+# Inyectar rutas candidatas de SCRIPTS en sys.path para importación determinista
+for candidate_dir in [
+    SCRIPTS_DIR,
+    os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS"),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "SCRIPTS")),
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "SCRIPTS")),
+]:
+    if os.path.exists(candidate_dir) and candidate_dir not in sys.path:
+        sys.path.insert(0, candidate_dir)
+
+GLOBAL_SCRIPTS = os.environ.get("FLOYDIA_GLOBAL_SCRIPTS", SCRIPTS_DIR)
 
 def get_config_file_path() -> str:
     safe_default = os.path.join(
@@ -236,9 +254,98 @@ class DefaultRebootEngine:
 
     @staticmethod
     def execute_reboot_node(node, env_map, dry_run=False, log_cb=None):
-        if log_cb:
-            log_cb(f"Reinicio simulado: {node.get('name')}", "INFO")
-        return True, "Completado"
+        def log(msg, lvl="INFO"):
+            if log_cb:
+                log_cb(msg, lvl)
+            else:
+                print(f"[{lvl}] {msg}")
+
+        resolved = DefaultRebootEngine.get_resolved_node(node, env_map)
+        n_id = resolved.get("id", "")
+        n_name = resolved.get("name", "Nodo")
+        n_type = resolved.get("type", "ssh_linux")
+        ip = resolved.get("ip", "127.0.0.1")
+        user = resolved.get("user", "root")
+        pwd = resolved.get("password", "")
+
+        if dry_run:
+            log(f"[SIMULACIÓN DRY-RUN] Enviando señal ficticia de reinicio a '{n_name}' ({ip})...", "INFO")
+            time.sleep(1.0)
+            log(f"[SIMULACIÓN DRY-RUN] '{n_name}' procesado con éxito (0 cambios reales).", "SUCCESS")
+            return True, "Simulación completada con éxito"
+
+        log(f"[MODO REAL] ⚡ Ejecutando orden de reinicio real para '{n_name}' ({ip}) [Tipo: {n_type}]...", "WARN")
+
+        # 1. Localhost (HP15)
+        if n_type == "localhost" or ip in ("127.0.0.1", "localhost"):
+            try:
+                cmd = ["sudo", "systemctl", "reboot"]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                if res.returncode == 0:
+                    log(f"Orden de reinicio emitida a host local {n_name}.", "SUCCESS")
+                    return True, "Reinicio local emitido"
+                res2 = subprocess.run(["systemctl", "reboot"], capture_output=True, text=True, timeout=10)
+                if res2.returncode == 0:
+                    log(f"Orden de reinicio emitida a host local {n_name}.", "SUCCESS")
+                    return True, "Reinicio local emitido"
+                err = res.stderr or res2.stderr or "Error reiniciando localhost"
+                log(f"Error reiniciando localhost: {err}", "ERROR")
+                return False, err
+            except Exception as e:
+                log(f"Error reiniciando localhost: {e}", "ERROR")
+                return False, str(e)
+
+        # 2. Proxmox o Linux SSH
+        elif n_type in ("proxmox", "ssh_linux"):
+            try:
+                ssh_base = ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
+                if pwd:
+                    full_cmd = ["sshpass", "-p", pwd] + ssh_base + [f"{user}@{ip}", "systemctl reboot || reboot"]
+                else:
+                    full_cmd = ssh_base + ["-o", "BatchMode=yes", f"{user}@{ip}", "systemctl reboot || reboot"]
+
+                res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=8)
+                stderr_lower = (res.stderr or "").lower()
+                is_disconnect = any(x in stderr_lower for x in ["connection closed", "broken pipe", "connection reset", "closed by remote host", "reboot"])
+                if res.returncode == 0 or is_disconnect:
+                    log(f"Comando de reinicio real enviado a {n_name} ({ip}).", "SUCCESS")
+                    return True, f"Reinicio enviado a {n_name}"
+                err = (res.stderr or "").strip() or f"Código {res.returncode}"
+                log(f"Error en SSH a {n_name}: {err}", "ERROR")
+                return False, err
+            except subprocess.TimeoutExpired:
+                log(f"Conexión con {n_name} finalizada (reinicio en curso).", "SUCCESS")
+                return True, f"Reinicio ejecutado en {n_name}"
+            except Exception as e:
+                log(f"Fallo reiniciando {n_name}: {e}", "ERROR")
+                return False, str(e)
+
+        # 3. MikroTik RouterOS
+        elif n_type == "mikrotik":
+            try:
+                ssh_base = ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
+                if pwd:
+                    full_cmd = ["sshpass", "-p", pwd] + ssh_base + [f"{user}@{ip}", "/system reboot"]
+                else:
+                    full_cmd = ssh_base + ["-o", "BatchMode=yes", f"{user}@{ip}", "/system reboot"]
+                res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=8)
+                stderr_lower = (res.stderr or "").lower()
+                is_disconnect = any(x in stderr_lower for x in ["connection closed", "broken pipe", "connection reset", "closed by remote host", "reboot"])
+                if res.returncode == 0 or is_disconnect:
+                    log(f"Orden de reinicio enviada a MikroTik {n_name}.", "SUCCESS")
+                    return True, "Reinicio MikroTik enviado"
+                err = (res.stderr or "").strip() or f"Código {res.returncode}"
+                log(f"Error en SSH a MikroTik {n_name}: {err}", "ERROR")
+                return False, err
+            except subprocess.TimeoutExpired:
+                log(f"Conexión con {n_name} finalizada (reinicio en curso).", "SUCCESS")
+                return True, "Reinicio MikroTik enviado"
+            except Exception as e:
+                log(f"Fallo reiniciando MikroTik {n_name}: {e}", "ERROR")
+                return False, str(e)
+
+        # 4. TP-Link o Genérico
+        return False, f"Tipo de nodo desconocido: {n_type}"
 
 try:
     import restart_workspace_engine as engine

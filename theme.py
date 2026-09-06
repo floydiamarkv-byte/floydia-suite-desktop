@@ -109,6 +109,10 @@ PROVIDER_COLORS = {
     "moonshot": COLOR_PROV_KIMI,
     "airforce": "#14B8A6",
     "deepgram": "#10B981",
+    "venice": "#06B6D4",
+    "kktoken": "#8B5CF6",
+    "experientials_labs": "#EC4899",
+    "kiosapi": "#F59E0B",
     "custom": COLOR_PROV_CUSTOM
 }
 

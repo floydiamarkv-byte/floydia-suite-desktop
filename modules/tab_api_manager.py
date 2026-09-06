@@ -4,7 +4,7 @@
 ║  🔑 FLOYDIA SUITE 2.0 — Pestaña: Gestor de APIs, Endpoints & Propagación Agéntica ║
 ║  Administración centralizada multi-cuenta [C1..C8] de proveedores LLM           ║
 ║  (Google, OpenRouter, NVIDIA NIM, DeepSeek, Mistral, Groq, Z.AI, Ollama, etc.). ║
-║  Propagación determinista 1-clic: OpenCode, Hermes, Zed, .env y réplica HP45.   ║
+║  Propagación determinista 1-clic: OpenCode, Hermes, DeepSeek (DSH), Zed, .env.   ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -39,9 +39,12 @@ from theme import (
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
-        if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_hp45.sh")) or os.path.exists(os.path.join(curr, ".env")):
+        if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_all.sh")) or os.path.exists(os.path.join(curr, ".env")):
             return curr
         curr = os.path.dirname(curr)
+    ws_candidate = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS")
+    if os.path.exists(os.path.join(ws_candidate, "SCRIPTS", "sync_models_all.sh")):
+        return ws_candidate
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
@@ -50,14 +53,18 @@ CACHE_DIR = os.path.join(WORKSPACE_ROOT, "cache")
 APIS_CONFIG_FILE = os.path.join(CACHE_DIR, "custom_apis.json")
 
 OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
+OPENCODE_SSOT = os.path.expanduser("~/.opencode/opencode.jsonc")
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
 ZED_CONFIG = os.environ.get("ZED_CONFIG_PATH", os.path.expanduser("~/.config/zed/settings.json"))
+DSH_CONFIG = os.path.expanduser("~/.dsh/settings.yaml")
+SYNC_MODELS_ALL_SCRIPT = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "sync_models_all.sh")
 SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 EXPORT_REMOTE_KEYS_SCRIPT = os.path.join(CACHE_DIR, "export_remote_keys.sh")
-# ⚠️ Fix BUG-API-01: constantes referenciadas por PropagateAllWorker.run() que no estaban definidas (NameError en runtime).
-SYNC_HP45_SCRIPT = os.path.join(CACHE_DIR, "sync_models_hp45.sh")
-EXPORT_HP45_KEYS_SCRIPT = EXPORT_REMOTE_KEYS_SCRIPT
+# HP45 purgado: se desactiva la sincronización hacia la laptop secundaria
+SYNC_HP45_ENABLED = False
+SYNC_HP45_SCRIPT = ""
+EXPORT_HP45_KEYS_SCRIPT = ""
 
 
 def load_env_vars() -> Dict[str, str]:
@@ -497,6 +504,58 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "auth_type": "Bearer",
         "enabled": True,
         "notes": "Plataforma oficial Moonshot AI (Kimi K3)."
+    },
+    {
+        "id": "venice_c7",
+        "name": "Venice AI [C7]",
+        "provider": "venice",
+        "account_tag": "C7",
+        "env_key": "C7_VENICE_API",
+        "base_url": "https://api.venice.ai/api/v1",
+        "api_key": "",
+        "test_model": "qwen-3-8-max",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Venice AI Privacy-Focused LLM Hub (115 modelos validados)."
+    },
+    {
+        "id": "kktoken_c7",
+        "name": "KKToken AI Hub [C7]",
+        "provider": "kktoken",
+        "account_tag": "C7",
+        "env_key": "C7_KKTOKEN_API",
+        "base_url": "https://kktoken.cc/v1",
+        "api_key": "",
+        "test_model": "default",
+        "auth_type": "Bearer",
+        "enabled": False,
+        "notes": "Agregador KKToken OpenAI-compatible (Pendiente activación de canal)."
+    },
+    {
+        "id": "experientials_labs_c7",
+        "name": "Experiential Labs AI [C7]",
+        "provider": "experientials_labs",
+        "account_tag": "C7",
+        "env_key": "C7_EXPERIENTIALS_LABS_API",
+        "base_url": "https://api.experientiallabs.ai/v1",
+        "api_key": "",
+        "test_model": "default",
+        "auth_type": "Bearer",
+        "enabled": False,
+        "notes": "Experiential Labs AI (Backend 502 temporalmente no disponible)."
+    },
+    {
+        "id": "kiosapi_c7",
+        "name": "KiosAPI Router [C7]",
+        "provider": "kiosapi",
+        "account_tag": "C7",
+        "env_key": "C7_KIOSAPI_API",
+        "base_url": "https://router.kiosapi.com/v1",
+        "api_key": "",
+        "test_model": "default",
+        "auth_type": "Bearer",
+        "enabled": False,
+        "notes": "Router KiosAPI OpenAI-compatible (Pendiente asignación de canal)."
     }
 ]
 
@@ -936,47 +995,82 @@ fallback_model:
             results["EnvSync"] = False
             self.log_signal.emit(f"  ❌ Error persistiendo configuración: {e}")
 
-        # 5. Generación de Script de Réplica HP45
+        # 5. DeepSeek Harness (DSH ~/.dsh/settings.yaml y workspace)
         try:
-            os.makedirs(os.path.dirname(EXPORT_HP45_KEYS_SCRIPT), exist_ok=True)
-            export_lines = [
-                "#!/usr/bin/env bash",
-                "# Script generado automáticamente por FloydIA Suite 2.0 para réplica segura en HP45",
-                "set -euo pipefail",
-                'HP45_HOST="${HP45_HOST:-192.168.1.200}"',
-                'HP45_USER="${HP45_USER:-tec}"',
-                'echo "🚀 Sincronizando configuraciones de agentes hacia HP45 ($HP45_HOST)..."',
-                'rsync -avz --inplace ~/.config/opencode/opencode.jsonc "$HP45_USER@$HP45_HOST:~/.config/opencode/opencode.jsonc" || true',
-                'rsync -avz --inplace ~/.hermes/config.yaml "$HP45_USER@$HP45_HOST:~/.hermes/config.yaml" || true',
-                'echo "✅ Sincronización hacia HP45 completada."'
-            ]
-            with open(EXPORT_HP45_KEYS_SCRIPT, "w", encoding="utf-8") as f:
-                f.write("\n".join(export_lines) + "\n")
-            os.chmod(EXPORT_HP45_KEYS_SCRIPT, 0o755)
-            results["HP45_Script"] = True
-            self.log_signal.emit(f"  ✅ Script de réplica HP45 generado: {EXPORT_HP45_KEYS_SCRIPT}")
-        except Exception as e:
-            results["HP45_Script"] = False
-            self.log_signal.emit(f"  ⚠️ Aviso generando script HP45: {e}")
+            dsh_user = os.path.expanduser("~/.dsh/settings.yaml")
+            dsh_ws = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "dsh-settings.yaml")
+            sync_script = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "sync_models_all.sh")
 
-        # 6. Ejecución Asíncrona de sync_models_hp45.sh (si está presente)
-        if os.path.exists(SYNC_HP45_SCRIPT):
-            try:
+            if os.path.exists(sync_script):
                 import subprocess
-                res = subprocess.run([SYNC_HP45_SCRIPT], capture_output=True, text=True, timeout=10)
-                if res.returncode == 0:
-                    results["HP45"] = True
-                    self.log_signal.emit("  ✅ Réplica enviada a HP45 exitosamente.")
+                res_sync = subprocess.run([sync_script], capture_output=True, text=True, timeout=15)
+                if res_sync.returncode == 0:
+                    results["DeepSeek_DSH"] = True
+                    self.log_signal.emit("  ✅ DeepSeek Harness (DSH) sincronizado con SSOT canónico.")
                 else:
-                    results["HP45"] = False
-                    self.log_signal.emit(f"  ⚠️ Réplica HP45 terminó con aviso: {res.stderr[:50]}")
-            except Exception as e:
-                results["HP45"] = False
-                self.log_signal.emit(f"  ⚠️ HP45 no disponible en red local: {e}")
-        else:
-            results["HP45"] = None
+                    self.log_signal.emit(f"  ⚠️ sync_models_all.sh retornó aviso: {res_sync.stderr[:60]}")
+                    results["DeepSeek_DSH"] = self._generate_dsh_fallback(dsh_user, dsh_ws)
+            else:
+                results["DeepSeek_DSH"] = self._generate_dsh_fallback(dsh_user, dsh_ws)
+        except Exception as e:
+            results["DeepSeek_DSH"] = False
+            self.log_signal.emit(f"  ❌ Error en DeepSeek Harness: {e}")
 
         self.finished_signal.emit(results)
+
+    def _generate_dsh_fallback(self, dsh_user: str, dsh_ws: str) -> bool:
+        try:
+            import yaml
+            dsh_providers = {}
+            for api in self.apis:
+                if not api.get("enabled", True):
+                    continue
+                prov = api.get("provider", "custom")
+                acc_tag = api.get("account_tag", "C1")
+                env_k = api.get("env_key", "")
+                base_u = api.get("base_url", "")
+                tm = api.get("test_model", "default")
+                prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in dsh_providers else f"{prov}_{acc_tag.lower()}"
+
+                if prov == "google":
+                    m_list = [{"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash Reasoning", "contextWindow": 1048576}]
+                elif prov == "deepseek":
+                    m_list = [
+                        {"id": "deepseek-chat", "name": "DeepSeek Chat V3", "contextWindow": 131072},
+                        {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner R1", "contextWindow": 131072}
+                    ]
+                elif prov == "mistral":
+                    m_list = [{"id": "codestral-latest", "name": "Mistral Codestral Latest", "contextWindow": 131072}]
+                else:
+                    m_list = [{"id": tm, "name": tm, "contextWindow": 131072}]
+
+                dsh_providers[prov_key] = {
+                    "api": "openai-completions",
+                    "displayName": api.get("name", prov_key),
+                    "apiKeyEnv": env_k,
+                    "baseURL": base_u,
+                    "models": m_list
+                }
+
+            dsh_data = {
+                "version": 2,
+                "default_provider": "deepseek-official",
+                "default_model": "deepseek-chat",
+                "theme": "dark",
+                "llm-pi-ai": {
+                    "providers": dsh_providers
+                }
+            }
+            for p in (dsh_user, dsh_ws):
+                if p and os.path.exists(os.path.dirname(p)):
+                    self._backup_file(p)
+                    with open(p, "w", encoding="utf-8") as f:
+                        yaml.dump(dsh_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            self.log_signal.emit("  ✅ DSH configurado autónomamente (llm-pi-ai.providers).")
+            return True
+        except Exception as exc:
+            self.log_signal.emit(f"  ❌ Fallo en fallback DSH: {exc}")
+            return False
 
 
 class ApiEditDialog(QDialog):
@@ -1056,6 +1150,10 @@ class ApiEditDialog(QDialog):
             "GoRouter Hub (gorouter)",
             "JustWorker AI (justworker)",
             "Kimi Moonshot (kimi)",
+            "Venice AI (venice)",
+            "KKToken AI (kktoken)",
+            "Experiential Labs (experientials_labs)",
+            "KiosAPI Router (kiosapi)",
             "Personalizado / Custom (custom)"
         ])
         self.combo_provider.currentIndexChanged.connect(self.on_preset_or_account_changed)
@@ -1191,6 +1289,10 @@ class ApiEditDialog(QDialog):
                 "gorouter": ("GoRouter AI Hub", f"{tag}_GOROUTER_API", "https://api.gorouter.cc/v1", "default", "Bearer"),
                 "justworker": ("JustWorker AI", f"{tag}_JUSTWORKER_API", "https://api.justwoker.icu/v1", "default", "Bearer"),
                 "kimi": ("Kimi Moonshot Platform", f"{tag}_KIMI_PLATFORM_API", "https://api.moonshot.cn/v1", "moonshot-v1-8k", "Bearer"),
+                "venice": ("Venice AI", f"{tag}_VENICE_API", "https://api.venice.ai/api/v1", "qwen-3-8-max", "Bearer"),
+                "kktoken": ("KKToken AI Hub", f"{tag}_KKTOKEN_API", "https://kktoken.cc/v1", "default", "Bearer"),
+                "experientials_labs": ("Experiential Labs AI", f"{tag}_EXPERIENTIALS_LABS_API", "https://api.experientiallabs.ai/v1", "default", "Bearer"),
+                "kiosapi": ("KiosAPI Router", f"{tag}_KIOSAPI_API", "https://router.kiosapi.com/v1", "default", "Bearer"),
             }
             if prov in presets:
                 name_base, env_k, url, model, auth = presets[prov]
@@ -1590,10 +1692,10 @@ class TabApiManager(QWidget):
         btn_sync_zed.clicked.connect(lambda: self.sync_single_target("zed"))
         agents_row.addWidget(btn_sync_zed)
 
-        btn_sync_hp45 = QPushButton("💻 Réplica HP45")
-        btn_sync_hp45.setObjectName("SecondaryBtn")
-        btn_sync_hp45.clicked.connect(lambda: self.sync_single_target("hp45"))
-        agents_row.addWidget(btn_sync_hp45)
+        btn_sync_dsh = QPushButton("🤖 DeepSeek (DSH)")
+        btn_sync_dsh.setObjectName("SecondaryBtn")
+        btn_sync_dsh.clicked.connect(lambda: self.sync_single_target("dsh"))
+        agents_row.addWidget(btn_sync_dsh)
 
         # Botones DeepSeek dedicados
         btn_deepseek_export = QPushButton("📤 DeepSeek (C1..C7)")
@@ -1998,17 +2100,14 @@ class TabApiManager(QWidget):
             except Exception as e:
                 self.log(f"\u274c Error en Zed: {e}")
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar Zed: {e}")
-        elif target == "hp45":
-            if os.path.exists(SYNC_HP45_SCRIPT):
-                import subprocess
-                try:
-                    subprocess.Popen([SYNC_HP45_SCRIPT])
-                    self.log("\U0001f4bb R\u00e9plica enviada a HP45 en segundo plano.")
-                    QMessageBox.information(self, "HP45", "\u2705 R\u00e9plica enviada a HP45.")
-                except Exception as e:
-                    self.log(f"\u274c Error ejecutando script HP45: {e}")
-            else:
-                QMessageBox.warning(self, "HP45", "Script sync_models_hp45.sh no encontrado.")
+        elif target == "dsh":
+            try:
+                self._propagate_to_dsh()
+                self.log("✅ DeepSeek Harness (DSH) sincronizado individualmente.")
+                QMessageBox.information(self, "DeepSeek Harness", "✅ Configuración propagada a DeepSeek Harness (DSH).")
+            except Exception as e:
+                self.log(f"❌ Error en DSH: {e}")
+                QMessageBox.critical(self, "Error", f"No se pudo sincronizar DSH: {e}")
 
     def _backup_file_local(self, path: str):
         if os.path.exists(path):
@@ -2321,6 +2420,20 @@ fallback_model:
             cb.setText(json.dumps(payload, indent=2))
             self.log(f"📋 Configuración de {len(deepseek_list)} cuentas DeepSeek copiada al portapapeles.")
             QMessageBox.information(self, "DeepSeek Copiado", f"✅ {len(deepseek_list)} cuentas DeepSeek copiadas al portapapeles.")
+
+    def _propagate_to_dsh(self):
+        """Propaga configuración exclusivamente a DeepSeek Harness (DSH)."""
+        sync_script = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "sync_models_all.sh")
+        if os.path.exists(sync_script):
+            import subprocess
+            res = subprocess.run([sync_script], capture_output=True, text=True, timeout=15)
+            if res.returncode == 0:
+                self.log("✅ DSH sincronizado mediante sync_models_all.sh.")
+                return
+        dsh_user = os.path.expanduser("~/.dsh/settings.yaml")
+        dsh_ws = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "dsh-settings.yaml")
+        worker = PropagateAllWorker(self.apis)
+        worker._generate_dsh_fallback(dsh_user, dsh_ws)
 
     def cleanup(self):
         for worker in (self.ping_worker, self.propagate_worker):

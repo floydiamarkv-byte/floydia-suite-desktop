@@ -60,9 +60,12 @@ def normalize_deepseek_slug(raw_slug: str) -> str:
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
-        if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_hp45.sh")) or os.path.exists(os.path.join(curr, ".env")):
+        if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_all.sh")) or os.path.exists(os.path.join(curr, ".env")):
             return curr
         curr = os.path.dirname(curr)
+    ws_candidate = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS")
+    if os.path.exists(os.path.join(ws_candidate, "SCRIPTS", "sync_models_all.sh")):
+        return ws_candidate
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
@@ -1435,25 +1438,6 @@ class CatalogDiscoveryWorker(CancellableThread):
             self.error_signal.emit(f"Error general en descubrimiento de catálogo: {top_exc}")
 
 
-class SyncHP45Worker(CancellableThread):
-    sync_finished = pyqtSignal(bool, str)
-
-    def __init__(self, script_path: str):
-        super().__init__()
-        self.script_path = script_path
-
-    def run(self):
-        try:
-            res = subprocess.run(["bash", self.script_path], capture_output=True, text=True, timeout=15, check=False)
-            if self.is_cancelled():
-                return
-            if res.returncode == 0:
-                self.sync_finished.emit(True, "Modelos propagados hacia Laptop HP45 (tec@192.168.1.200).")
-            else:
-                self.sync_finished.emit(False, f"Fallo en script ({res.returncode}): {res.stderr.strip()[:100]}")
-        except Exception as exc:
-            self.sync_finished.emit(False, f"Excepción en réplica: {exc}")
-
 class AIAdvisorWorker(CancellableThread):
     response_ready = pyqtSignal(str)
     log_signal = pyqtSignal(str)
@@ -1570,7 +1554,7 @@ class TabRadar(QWidget):
         self.probe_worker: Optional[ProbeWorker] = None
         self.advisor_worker: Optional[AIAdvisorWorker] = None
         self.discovery_worker: Optional[CatalogDiscoveryWorker] = None
-        self.sync_worker: Optional[SyncHP45Worker] = None
+        self.sync_worker = None
         self.parity_worker: Optional[ParityAuditWorker] = None
         self._kpi_throttle_timer: Optional[QTimer] = None
 
@@ -2067,11 +2051,11 @@ class TabRadar(QWidget):
         btn_sync_z.clicked.connect(self.sync_to_zed)
         sync_row.addWidget(btn_sync_z)
 
-        btn_sync_hp = QPushButton("💻 Nodo Remoto")
-        btn_sync_hp.setObjectName("SecondaryBtn")
-        btn_sync_hp.setToolTip("Ejecuta réplica asíncrona hacia el nodo remoto configurado")
-        btn_sync_hp.clicked.connect(self.sync_to_remote)
-        sync_row.addWidget(btn_sync_hp)
+        btn_sync_dsh = QPushButton("🤖 DeepSeek Harness")
+        btn_sync_dsh.setObjectName("SecondaryBtn")
+        btn_sync_dsh.setToolTip("Sincroniza configuración y modelos con DeepSeek Harness (~/.dsh/settings.yaml)")
+        btn_sync_dsh.clicked.connect(lambda: self.sync_to_dsh())
+        sync_row.addWidget(btn_sync_dsh)
 
         btn_deepseek_export = QPushButton("📤 DeepSeek (C1..C7)")
         btn_deepseek_export.setObjectName("DeepSeekActionBtn")
@@ -3054,18 +3038,13 @@ class TabRadar(QWidget):
             except Exception:
                 pass
 
-    def sync_to_hp45(self):
-        """Alias de compatibilidad para sync_to_remote."""
-        self.sync_to_remote()
-
     def sync_all_agents(self):
-        """Ejecuta la propagación unificada en 1-clic a OpenCode, DeepSeek Harness, Hermes, Zed y Nodo Remoto."""
+        """Ejecuta la propagación unificada en 1-clic a OpenCode, DeepSeek Harness, Hermes y Zed."""
         self.log("🚀 Iniciando propagación 1-Clic a todos los agentes desde AI Radar...")
         ok_opencode = False
         ok_dsh = False
         ok_hermes = False
         ok_zed = False
-        ok_remote = False
 
         try:
             self.sync_to_opencode(silent=True)
@@ -3091,19 +3070,11 @@ class TabRadar(QWidget):
         except Exception as e:
             self.log(f"  ❌ Error Zed: {e}")
 
-        try:
-            if os.path.exists(SYNC_REMOTE_SCRIPT):
-                self.sync_to_remote()
-                ok_remote = True
-        except Exception as e:
-            self.log(f"  ❌ Error Réplica Remota: {e}")
-
         summary = (
             f"• OpenCode (~/.config/opencode/opencode.jsonc): {'✅ OK' if ok_opencode else '❌ Error'}\n"
             f"• DeepSeek Harness (~/.dsh/settings.yaml): {'✅ OK' if ok_dsh else '❌ Error'}\n"
             f"• Hermes Agent (~/.hermes/config.yaml): {'✅ OK' if ok_hermes else '❌ Error'}\n"
-            f"• Zed Editor (~/.config/zed/settings.json): {'✅ OK' if ok_zed else '❌ Error'}\n"
-            f"• Réplica Remota (HP45): {'🚀 Iniciada en segundo plano' if ok_remote else '⚪ Omitida (sin script en cache)'}"
+            f"• Zed Editor (~/.config/zed/settings.json): {'✅ OK' if ok_zed else '❌ Error'}"
         )
         self.log("✅ Propagación 1-Clic finalizada.")
         QMessageBox.information(self, "Propagación 1-Clic Completa", f"✅ Telemetría y modelos propagados a todos los agentes:\n\n{summary}")
@@ -3595,35 +3566,9 @@ fallback_model:
             if not silent:
                 QMessageBox.critical(self, "Error", f"No se pudo sincronizar Zed Editor: {e}")
 
-    def sync_to_remote(self):
-        if not os.path.exists(SYNC_REMOTE_SCRIPT):
-            self.log("⚠️ Script sync_remote_node.sh no encontrado en cache.")
-            return
-
-        if is_worker_running(self.sync_worker):
-            self.log("⚠️ Ya hay una sincronización remota en curso.")
-            return
-
-        self.log(f"💻 Ejecutando réplica asíncrona ({SYNC_REMOTE_SCRIPT})...")
-        self.sync_worker = SyncHP45Worker(SYNC_REMOTE_SCRIPT)
-        self.sync_worker.sync_finished.connect(self._on_sync_remote_finished)
-        self.sync_worker.finished.connect(self._on_sync_remote_worker_finished)
-        self.sync_worker.start()
-
-    def _on_sync_remote_worker_finished(self):
-        if self.sync_worker:
-            self.sync_worker.deleteLater()
-            self.sync_worker = None
-
-    def _on_sync_remote_finished(self, success: bool, msg: str):
-        if success:
-            self.log(f"✅ {msg}")
-        else:
-            self.log(f"⚠️ Aviso Réplica Remota: {msg}")
-
     def cleanup(self):
         """Detiene y espera workers de forma determinista y cooperativa sin terminate()."""
-        for worker in (self.probe_worker, self.advisor_worker, self.discovery_worker, self.sync_worker, self.parity_worker):
+        for worker in (self.probe_worker, self.advisor_worker, self.discovery_worker, self.parity_worker):
             stop_worker(worker, timeout_ms=1800)
         self.probe_worker = None
         self.advisor_worker = None

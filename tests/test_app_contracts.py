@@ -46,9 +46,12 @@ def test_initial_tab_sentinel_is_none():
     assert sig.parameters["initial_tab"].default is None
 
 
-def test_hp45_propagation_constants_defined():
+def test_hp45_propagation_purged():
+    """Valida que la réplica HP45 haya sido purgada de módulos según especificación."""
     import modules.tab_api_manager as tam
-    assert tam.EXPORT_HP45_KEYS_SCRIPT and tam.SYNC_HP45_SCRIPT
+    import modules.tab_radar as tradar
+    assert getattr(tam, "SYNC_HP45_ENABLED", None) is False
+    assert not hasattr(tradar, "SyncHP45Worker"), "SyncHP45Worker debe ser eliminado de tab_radar"
 
 
 def test_fallback_workspace_root_portable():
@@ -139,3 +142,47 @@ def test_ping_parser_spanish_and_english(monkeypatch):
     key, res = td._probe_single_target("internet", "Google DNS", "8.8.8.8")
     assert res["alive"] is True
     assert "24.3 ms" in res["lat"]
+
+
+def test_tab_reboot_dry_run_and_real_mode(monkeypatch):
+    """Verifica que el motor de tab_reboot diferencie entre simulación y modo real."""
+    import modules.tab_reboot as tr
+
+    dummy_node = {
+        "id": "test_node",
+        "name": "Nodo de Prueba",
+        "type": "localhost",
+        "default_ip": "127.0.0.1"
+    }
+    logs_dry = []
+    ok_dry, msg_dry = tr.engine.execute_reboot_node(
+        dummy_node, {}, dry_run=True, log_cb=lambda m, lvl: logs_dry.append((m, lvl))
+    )
+    assert ok_dry is True
+    assert any("[SIMULACIÓN DRY-RUN]" in m for m, _ in logs_dry)
+
+    # Simular comando exitoso en modo real sin apagar la máquina
+    class MockRebootProcess:
+        returncode = 0
+        stderr = ""
+        stdout = "reboot ok"
+
+    class MockPopen:
+        returncode = 0
+        def communicate(self, timeout=None):
+            return "reboot ok", ""
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: MockRebootProcess())
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: MockPopen())
+    if hasattr(tr.engine, "subprocess"):
+        monkeypatch.setattr(tr.engine.subprocess, "run", lambda *a, **kw: MockRebootProcess())
+        monkeypatch.setattr(tr.engine.subprocess, "Popen", lambda *a, **kw: MockPopen())
+
+    logs_real = []
+    ok_real, msg_real = tr.engine.execute_reboot_node(
+        dummy_node, {}, dry_run=False, log_cb=lambda m, lvl: logs_real.append((m, lvl))
+    )
+    assert ok_real is True
+    assert any("[MODO REAL]" in m for m, _ in logs_real)
