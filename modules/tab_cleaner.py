@@ -50,10 +50,15 @@ CURRENT_USER = os.environ.get("USER", "tec")
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
+        if (os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_all.sh"))
+                and os.path.exists(os.path.join(curr, "memory-bank"))):
+            return curr
+        curr = os.path.dirname(curr)
+    curr = os.path.abspath(__file__)
+    while curr and curr != "/":
         if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
             return curr
         curr = os.path.dirname(curr)
-    # Fallback seguro y portable: raíz del propio repo, nunca una ruta personal hardcodeada.
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())

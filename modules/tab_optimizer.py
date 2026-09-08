@@ -36,6 +36,12 @@ CURRENT_USER = getpass.getuser()
 def find_workspace_root() -> str:
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
+        if (os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_all.sh"))
+                and os.path.exists(os.path.join(curr, "memory-bank"))):
+            return curr
+        curr = os.path.dirname(curr)
+    curr = os.path.abspath(__file__)
+    while curr and curr != "/":
         if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
             return curr
         curr = os.path.dirname(curr)

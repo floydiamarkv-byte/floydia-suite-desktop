@@ -71,6 +71,7 @@ def find_workspace_root() -> str:
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
 ENV_FILE = os.path.join(WORKSPACE_ROOT, ".env")
 OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
+CANONICAL_SSOT = os.environ.get("OPENCODE_SSOT_PATH", os.path.expanduser("~/.opencode/opencode.jsonc"))
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
 REPORTS_DIR = os.path.join(WORKSPACE_ROOT, "reports")
@@ -180,6 +181,38 @@ def is_coherent_ok_response(m: dict) -> bool:
     return True
 
 
+def is_coherent_or_quota_response(m: dict) -> bool:
+    """Valida que la respuesta sea 200 OK coherente O que sea un modelo operativo con cuota/rate-limit temporal agotado (429).
+    Distingue entre 'Cuota Agotada / Rate Limit' (recuperable diariamente en free-tier) vs 'Sin Saldo / Error de Auth' (402/401/403)."""
+    if is_coherent_ok_response(m):
+        return True
+    st = str(m.get("status", "")).upper()
+    snip = str(m.get("response_snippet", "")).strip().lower()
+
+    if snip in ("—", "sin probar", "sondeo cancelado"):
+        return False
+
+    # Excluir cuentas sin saldo permanente, credenciales inválidas o errores fatales de auth
+    bad_permanent = (
+        "sin saldo", "402", "payment required", "insufficient credits",
+        "out of credits", "no credits", "balance is too low", "credit is not enough",
+        "unauthorized", "invalid key", "auth_err", "no_credits", "sin key", "401", "403"
+    )
+    if any(bp in snip for bp in bad_permanent) or st in ("NO_CREDITS", "AUTH_ERR", "SIN_KEY"):
+        return False
+
+    # Aceptar si el modelo respondió con rate limit o cuota temporal agotada (429)
+    if "429" in st or st == "429_LIMIT":
+        return True
+    quota_keywords = (
+        "rate limit", "cuota agotada", "tpm", "rpm", "too many requests",
+        "quota exceeded", "quota", "limit"
+    )
+    if any(q in snip for q in quota_keywords):
+        return True
+    return False
+
+
 # Cargar variables de .env
 def load_env_vars() -> Dict[str, str]:
     env_vars = {}
@@ -233,6 +266,7 @@ OPENROUTER_C1_KEY = get_secret(["C1_OPENROUTER", "OPENROUTER_API_KEY"])
 NVIDIA_C7_KEY = get_secret(["C7_NVIDIA", "C7_NVIDIA_API_KEY"])
 NVIDIA_C1_KEY = get_secret(["C1_NVIDIA"])
 NVIDIA_C2_KEY = get_secret(["C2_NVIDIA"])
+NVIDIA_C9_KEY = get_secret(["C9_NVIDIA_API", "C9_NVIDIA_API_KEY", "C9_NVIDIA"])
 MISTRAL_C1_KEY = get_secret(["C1_MISTRAL", "MISTRAL_API_KEY"])
 MISTRAL_C2_KEY = get_secret(["C2_MISTRAL"])
 DEEPSEEK_DIRECT_KEY = get_secret(["DEEPSEEK_API_KEY"])
@@ -245,6 +279,7 @@ ZAI_C1_KEY = get_secret(["C1_Z_AI"])
 CLOUDFLARE_C7_KEY = get_secret(["C7_CLOUDFLARE", "CLOUDFLARE_API_TOKEN"])
 B_AI_C7_KEY = get_secret(["C7_B_AI_API", "B_AI_API", "BAI_API_KEY"])
 TOKENROUTER_C7_KEY = get_secret(["C7_TOKENROUTER_API", "TOKENROUTER_API"])
+APINEX_C7_KEY = get_secret(["C7_APINEX_API"])
 ZENMUX_C7_KEY = get_secret(["C7_ZENMUX_API", "ZENMUX_API"])
 SEEKAI_C7_KEY = get_secret(["C7_SEEKAI_API", "SEEKAI_API_KEY"])
 GOROUTER_C7_KEY = get_secret(["C7_GOROUTER_API", "GOROUTER_API_KEY"])
@@ -256,7 +291,7 @@ KIMI_C7_KEY = get_secret(["C7_KIMI_PLATFORM_API", "MOONSHOT_API_KEY"])
 # Alias y Claves Globales Canónicas para Catálogo Global, Advisor y Fallbacks
 GOOGLE_KEY = GOOGLE_C1_KEY
 OPENROUTER_KEY = OPENROUTER_C7_KEY or OPENROUTER_C1_KEY
-NVIDIA_KEY = NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C2_KEY
+NVIDIA_KEY = NVIDIA_C9_KEY or NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C2_KEY
 MISTRAL_KEY = MISTRAL_C1_KEY or MISTRAL_C2_KEY
 DEEPSEEK_KEY = DEEPSEEK_DIRECT_KEY or DEEPSEEK_C1_KEY or DEEPSEEK_C7_KEY
 GROQ_KEY = GROQ_C1_KEY
@@ -285,17 +320,19 @@ CURATED_FLEET = [
     {"id": "minimax/minimax-m3:free", "name": "[C7] MiniMax M3 Frontier", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 1048576, "badge": "1M • Free", "category": "free"},
     {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "[C7] Nemotron 3 Super 120B", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 262144, "badge": "262k • Free", "category": "free"},
     {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "name": "[C7] Nemotron 3 Nano Reasoning", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 256000, "badge": "256k • Free", "category": "free"},
-    {"id": "nvidia/nemotron-3.5-lightning:free", "name": "[C7] Nemotron 3.5 Lightning", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 262144, "badge": "262k • Free", "category": "free"},
-    {"id": "nvidia/nemotron-3-ultra-550b-a55b:free", "name": "[C7] Nemotron 3 Ultra 550B", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 262144, "badge": "262k • Free", "category": "free"},
+    {"id": "nvidia/nemotron-3.5-lightning:free", "name": "[C7] Nemotron 3.5 Lightning", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 1000000, "badge": "1M • Free", "category": "free"},
+    {"id": "nvidia/nemotron-3-ultra-550b-a55b:free", "name": "[C7] Nemotron 3 Ultra 550B", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 1000000, "badge": "1M • Free", "category": "free"},
     {"id": "z-ai/glm-5.2:free", "name": "[C7] GLM 5.2 Frontier", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 256000, "badge": "256k • Free", "category": "free"},
     {"id": "poolside/laguna-s-2.1:free", "name": "[C7] Laguna S 2.1 Code", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 262144, "badge": "262k • Free", "category": "code"},
     {"id": "poolside/laguna-xs-2.1:free", "name": "[C7] Laguna XS 2.1 Fast", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "code"},
-    {"id": "inclusionai/ling-3.0-flash-fin:free", "name": "[C7] Ling 3.0 Flash Fin", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "free"},
-    {"id": "dots-studio/dots-3-note-preview:free", "name": "[C7] Dots 3 Note Preview", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "free"},
-    {"id": "liquid/lfm-2.5-2.6b:free", "name": "[C7] Liquid LFM 2.5", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 32768, "badge": "32k • Free", "category": "free"},
+    {"id": "inclusionai/ling-3.0-flash-fin:free", "name": "[C7] Ling 3.0 Flash Fin", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 262144, "badge": "262k • Free", "category": "free"},
+    {"id": "inclusionai/ling-3.0-flash-sante:free", "name": "[C7] Ling 3.0 Flash Sante", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 262144, "badge": "262k • Free", "category": "free"},
+    {"id": "nvidia/nemotron-3.5-content-safety:free", "name": "[C7] Nemotron 3.5 Safety Free", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "free"},
+    {"id": "dots-studio/dots-3-note-preview:free", "name": "[C7] Dots 3 Note Preview", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 512000, "badge": "512k • Free", "category": "free"},
+    {"id": "liquid/lfm-2.5-2.6b:free", "name": "[C7] Liquid LFM 2.5", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 65536, "badge": "65k • Free", "category": "free"},
     {"id": "thinkingmachines/inkling-small:free", "name": "[C7] Inkling Small Reasoning", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "free"},
     {"id": "thinkingmachines/inkling:free", "name": "[C7] Inkling Frontier", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "free"},
-    {"id": "cohere/north-mini-code:free", "name": "[C7] North Mini Code", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "code"},
+    {"id": "cohere/north-mini-code:free", "name": "[C7] North Mini Code", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 256000, "badge": "256k • Free", "category": "code"},
     {"id": "google/gemma-4-26b-a4b-it:free", "name": "[C7] Gemma 4 26B Instruct", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "free"},
     {"id": "deepseek/deepseek-r1:free", "name": "[C7] DeepSeek R1 Reasoning Free", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "frontier"},
     {"id": "deepseek/deepseek-chat:free", "name": "[C7] DeepSeek Chat V3 Free", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Free", "category": "frontier"},
@@ -315,13 +352,57 @@ CURATED_FLEET = [
     {"id": "deepseek/deepseek-r1", "name": "[C7] DeepSeek R1 Global Hub", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
     {"id": "deepseek/deepseek-chat", "name": "[C7] DeepSeek V3 Global Hub", "account_tag": "C7", "provider": "openrouter", "base_url": "https://openrouter.ai/api/v1", "key": OPENROUTER_C7_KEY or OPENROUTER_KEY, "context": 128000, "badge": "128k • Paid", "category": "frontier"},
 
-    # NVIDIA NIM [C7], [C1]
-    {"id": "deepseek-ai/deepseek-v4-flash-0731", "name": "[C7] DeepSeek V4 Flash (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
-    {"id": "c1/deepseek-ai/deepseek-v4-flash-0731", "name": "[C1] DeepSeek V4 Flash (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
-    {"id": "moonshotai/kimi-k3", "name": "[C7] Kimi K3 Frontier (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C2_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
-    {"id": "c1/moonshotai/kimi-k3", "name": "[C1] Kimi K3 Frontier (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
-    {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[C7] Nemotron 3 Nano NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
-    {"id": "nvidia/nemotron-3-super-120b-a12b", "name": "[C7] Nemotron 3 Super 120B NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    # NVIDIA NIM [C7], [C1], [C9] — Flota Canónica Completa (15 modelos)
+    # C7
+    {"id": "deepseek-ai/deepseek-v4-flash-0731", "name": "[256k] DeepSeek V4 Flash (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "deepseek-ai/deepseek-v4-pro-0813", "name": "[256k] DeepSeek V4 Pro (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "moonshotai/kimi-k3", "name": "[256k] Kimi K3 Frontier (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "minimaxai/minimax-m3", "name": "[1M] MiniMax M3 Frontier (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 1048576, "badge": "1M • NIM", "category": "frontier"},
+    {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[256k] Nemotron 3 Nano NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "nvidia/nemotron-3-super-120b-a12b", "name": "[262k] Nemotron 3 Super 120B NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    {"id": "nvidia/nemotron-3.5-content-safety", "name": "[128k] Nemotron 3.5 Safety NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 128000, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "nvidia/llama-3.1-nemoguard-8b-content-safety", "name": "[128k] Nemoguard Safety 8B NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "nvidia/llama-3.1-nemoguard-8b-topic-control", "name": "[128k] Nemoguard Topic Control NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3", "name": "[128k] Nemotron Safety Guard v3 NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "poolside/laguna-xs-2.1", "name": "[128k] Laguna XS 2.1 NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 128000, "badge": "128k • NIM", "category": "code"},
+    {"id": "meta/llama-3.2-11b-vision-instruct", "name": "[128k] Llama 3.2 11B Vision NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "nvidia/ising-calibration-1.5-31b", "name": "[128k] Ising Calibration 31B NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "nvidia/riva-translate-4b-instruct-v1.1", "name": "[4k] Riva Translate v1.1 NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
+    {"id": "nvidia/riva-translate-4b-instruct-v2", "name": "[4k] Riva Translate v2 NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
+
+    # C1
+    {"id": "c1/deepseek-ai/deepseek-v4-flash-0731", "name": "[256k] DeepSeek V4 Flash (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "c1/deepseek-ai/deepseek-v4-pro-0813", "name": "[256k] DeepSeek V4 Pro (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "c1/moonshotai/kimi-k3", "name": "[256k] Kimi K3 Frontier (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "c1/minimaxai/minimax-m3", "name": "[1M] MiniMax M3 Frontier (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 1048576, "badge": "1M • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[256k] Nemotron 3 Nano NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/nemotron-3-super-120b-a12b", "name": "[262k] Nemotron 3 Super 120B NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/nemotron-3.5-content-safety", "name": "[128k] Nemotron 3.5 Safety NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 128000, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/llama-3.1-nemoguard-8b-content-safety", "name": "[128k] Nemoguard Safety 8B NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/llama-3.1-nemoguard-8b-topic-control", "name": "[128k] Nemoguard Topic Control NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/llama-3.1-nemotron-safety-guard-8b-v3", "name": "[128k] Nemotron Safety Guard v3 NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c1/poolside/laguna-xs-2.1", "name": "[128k] Laguna XS 2.1 NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 128000, "badge": "128k • NIM", "category": "code"},
+    {"id": "c1/meta/llama-3.2-11b-vision-instruct", "name": "[128k] Llama 3.2 11B Vision NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/ising-calibration-1.5-31b", "name": "[128k] Ising Calibration 31B NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/riva-translate-4b-instruct-v1.1", "name": "[4k] Riva Translate v1.1 NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/riva-translate-4b-instruct-v2", "name": "[4k] Riva Translate v2 NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
+
+    # C9
+    {"id": "c9/deepseek-ai/deepseek-v4-flash-0731", "name": "[256k] DeepSeek V4 Flash (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "c9/deepseek-ai/deepseek-v4-pro-0813", "name": "[256k] DeepSeek V4 Pro (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
+    {"id": "c9/moonshotai/kimi-k3", "name": "[256k] Kimi K3 Frontier (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "c9/minimaxai/minimax-m3", "name": "[1M] MiniMax M3 Frontier (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 1048576, "badge": "1M • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[256k] Nemotron 3 Nano NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/nemotron-3-super-120b-a12b", "name": "[262k] Nemotron 3 Super 120B NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/nemotron-3.5-content-safety", "name": "[128k] Nemotron 3.5 Safety NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 128000, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/llama-3.1-nemoguard-8b-content-safety", "name": "[128k] Nemoguard Safety 8B NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/llama-3.1-nemoguard-8b-topic-control", "name": "[128k] Nemoguard Topic Control NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/llama-3.1-nemotron-safety-guard-8b-v3", "name": "[128k] Nemotron Safety Guard v3 NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c9/poolside/laguna-xs-2.1", "name": "[128k] Laguna XS 2.1 NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 128000, "badge": "128k • NIM", "category": "code"},
+    {"id": "c9/meta/llama-3.2-11b-vision-instruct", "name": "[128k] Llama 3.2 11B Vision NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/ising-calibration-1.5-31b", "name": "[128k] Ising Calibration 31B NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 131072, "badge": "128k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/riva-translate-4b-instruct-v1.1", "name": "[4k] Riva Translate v1.1 NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/riva-translate-4b-instruct-v2", "name": "[4k] Riva Translate v2 NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
 
     # Mistral AI [C1] y [C2]
     {"id": "codestral-latest", "name": "[C1] Mistral Codestral Latest", "account_tag": "C1", "provider": "mistral", "base_url": "https://api.mistral.ai/v1", "key": MISTRAL_C1_KEY, "context": 256000, "badge": "256k • Trial", "category": "code"},
@@ -369,6 +450,16 @@ CURATED_FLEET = [
     {"id": "openai/gpt-5.4-nano", "name": "[C7] TokenRouter GPT-5.4 Nano", "account_tag": "C7", "provider": "tokenrouter", "base_url": "https://api.tokenrouter.com/v1", "key": TOKENROUTER_C7_KEY, "context": 128000, "badge": "128k • TokenRouter", "category": "free"},
     {"id": "anthropic/claude-3.5-sonnet", "name": "[C7] TokenRouter Claude 3.5 Sonnet", "account_tag": "C7", "provider": "tokenrouter", "base_url": "https://api.tokenrouter.com/v1", "key": TOKENROUTER_C7_KEY, "context": 200000, "badge": "200k • TokenRouter", "category": "frontier"},
     {"id": "meta-llama/llama-3.3-70b-instruct", "name": "[C7] TokenRouter Llama 3.3 70B", "account_tag": "C7", "provider": "tokenrouter", "base_url": "https://api.tokenrouter.com/v1", "key": TOKENROUTER_C7_KEY, "context": 128000, "badge": "128k • TokenRouter", "category": "frontier"},
+    {"id": "z-ai/glm-5.3-free", "name": "[C7] TokenRouter GLM 5.3 Free", "account_tag": "C7", "provider": "tokenrouter", "base_url": "https://api.tokenrouter.com/v1", "key": TOKENROUTER_C7_KEY, "context": 128000, "badge": "128k • TokenRouter", "category": "free"},
+    # Apinex AI Hub [C7] — tier free verificado (api.apinex.bond)
+    {"id": "free/glm-5.3-flash", "name": "[C7] Apinex GLM 5.3 Flash Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 128000, "badge": "128k • Apinex", "category": "free"},
+    {"id": "free/deepseek-v4-flash-0731", "name": "[C7] Apinex DeepSeek V4 Flash Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 262144, "badge": "256k • Apinex", "category": "free"},
+    {"id": "free/gemini-3.8-flash", "name": "[C7] Apinex Gemini 3.8 Flash Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 1048576, "badge": "1M • Apinex", "category": "free"},
+    {"id": "free/gemini-3.1-pro", "name": "[C7] Apinex Gemini 3.1 Pro Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 1048576, "badge": "1M • Apinex", "category": "free"},
+    {"id": "free/gpt-5.6-luna", "name": "[C7] Apinex GPT-5.6 Luna Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 256000, "badge": "256k • Apinex", "category": "free"},
+    {"id": "free/qwen-3.8-max", "name": "[C7] Apinex Qwen 3.8 Max Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 262144, "badge": "256k • Apinex", "category": "free"},
+    {"id": "free/muse-spark-1.3", "name": "[C7] Apinex Muse Spark 1.3 Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 128000, "badge": "128k • Apinex", "category": "free"},
+    {"id": "free/deepseek-v4-pro-0813", "name": "[C7] Apinex DeepSeek V4 Pro Free", "account_tag": "C7", "provider": "apinex", "base_url": "https://api.apinex.bond/v1", "key": APINEX_C7_KEY, "context": 262144, "badge": "256k • Apinex", "category": "free"},
 
     # ZenMux AI Hub [C7]
     {"id": "qwen/qwen3.8-flash", "name": "[C7] ZenMux Qwen 3.8 Flash", "account_tag": "C7", "provider": "zenmux", "base_url": "https://zenmux.ai/api/v1", "key": ZENMUX_C7_KEY, "context": 128000, "badge": "128k • ZenMux", "category": "frontier"},
@@ -411,6 +502,14 @@ def resolve_api_key_for_model(item: Dict[str, Any]) -> Optional[str]:
     # TokenRouter
     if "tokenrouter.com" in base_url or prov == "tokenrouter":
         return get_secret(["C7_TOKENROUTER_API", "TOKENROUTER_API"])
+
+    # Apinex AI Hub
+    if "apinex.bond" in base_url or prov == "apinex":
+        return get_secret(["C7_APINEX_API", "APINEX_API"])
+
+    # ExperientialLabs
+    if "experientiallabs.ai" in base_url or prov in ("experientiallabs", "experiential_labs", "experiential"):
+        return get_secret(["C7_EXPERIENTIAL_LABS_API", "EXPERIENTIAL_LABS_API", "C7_EXPERIENTIALS_LABS_API"])
 
     # ZenMux
     if "zenmux.ai" in base_url or prov == "zenmux":
@@ -458,7 +557,9 @@ def resolve_api_key_for_model(item: Dict[str, Any]) -> Optional[str]:
             return get_secret(["C1_NVIDIA", "C7_NVIDIA", "C7_NVIDIA_API_KEY"])
         elif tag == "C2":
             return get_secret(["C2_NVIDIA", "C7_NVIDIA", "C7_NVIDIA_API_KEY"])
-        return get_secret(["C7_NVIDIA", "C7_NVIDIA_API_KEY", "C1_NVIDIA", "C2_NVIDIA"])
+        elif tag == "C9":
+            return get_secret(["C9_NVIDIA_API", "C9_NVIDIA_API_KEY", "C9_NVIDIA", "C7_NVIDIA"])
+        return get_secret(["C9_NVIDIA", "C7_NVIDIA", "C7_NVIDIA_API_KEY", "C1_NVIDIA", "C2_NVIDIA"])
 
     # Mistral AI
     if "api.mistral.ai" in base_url or prov == "mistral" or "codestral" in model_id:
@@ -637,6 +738,10 @@ def probe_single_endpoint(item: Dict[str, Any], probe_cfg: Dict[str, Any], cance
         "Authorization": f"Bearer {key}",
         "User-Agent": "FloydiaAgentRadar/3.0"
     }
+    # Anti-ban Cloudflare (1010): apinex.bond y cerebras.ai rechazan UAs no-navegador
+    _BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+    if any(h in base_url for h in ("apinex.bond", "cerebras.ai")):
+        headers["User-Agent"] = _BROWSER_UA
 
     test_prompt = probe_cfg.get("prompt", "1")
     max_tok = int(probe_cfg.get("max_tokens", 8))
@@ -645,7 +750,7 @@ def probe_single_endpoint(item: Dict[str, Any], probe_cfg: Dict[str, Any], cance
 
     # Limpiar prefijos de cuenta internos (c1/, c2/, c7/) antes de enviar a la API
     model_id = item["id"]
-    if model_id.startswith(("c1/", "c2/", "c7/")):
+    if model_id.startswith(("c1/", "c2/", "c7/", "c9/")):
         model_id = model_id.split("/", 1)[-1]
 
     payload = {
@@ -1560,6 +1665,7 @@ class TabRadar(QWidget):
         self.sync_worker = None
         self.parity_worker: Optional[ParityAuditWorker] = None
         self._kpi_throttle_timer: Optional[QTimer] = None
+        self._sync_only_verified_initial: bool = True
 
         self.init_ui()
         self.populate_table()
@@ -1621,9 +1727,17 @@ class TabRadar(QWidget):
                 "badge": m.get("badge", ""),
                 "category": m.get("category", "")
             }
+
+        only_verified_val = True
+        if hasattr(self, "chk_sync_only_verified") and self.chk_sync_only_verified is not None:
+            only_verified_val = self.chk_sync_only_verified.isChecked()
+        elif hasattr(self, "_sync_only_verified_initial"):
+            only_verified_val = self._sync_only_verified_initial
+
         return {
             "version": 1,
             "saved_at": utc_now_iso(),
+            "sync_only_verified": only_verified_val,
             "models": models_state
         }
 
@@ -1631,6 +1745,13 @@ class TabRadar(QWidget):
         """Restaura el estado completo del Radar desde session_state.json."""
         if not isinstance(state, dict) or not state:
             return
+
+        if "sync_only_verified" in state:
+            val = bool(state["sync_only_verified"])
+            self._sync_only_verified_initial = val
+            if hasattr(self, "chk_sync_only_verified") and self.chk_sync_only_verified is not None:
+                self.chk_sync_only_verified.setChecked(val)
+
         saved_models = state.get("models", {})
         if not isinstance(saved_models, dict):
             return
@@ -1665,7 +1786,12 @@ class TabRadar(QWidget):
             if isinstance(data, dict) and "checked" in data:
                 cb = self.table_checkboxes.get(m_id)
                 if cb is not None:
-                    cb.setChecked(bool(data["checked"]))
+                    # b_ai nunca debe auto-marcarse desde estados viejos persistidos en disco
+                    m_prov = str(data.get("provider", "")).lower()
+                    if m_prov in ("b_ai", "bai", "b-ai-c7", "b_ai_c7"):
+                        cb.setChecked(False)
+                    else:
+                        cb.setChecked(bool(data["checked"]))
         self.update_kpi_dashboard()
 
     def init_ui(self):
@@ -1799,13 +1925,14 @@ class TabRadar(QWidget):
         self.txt_search_model.textChanged.connect(self.apply_table_filters)
         action_bar.addWidget(self.txt_search_model)
 
-        # Filtro de Cuentas [C1..C8]
+        # Filtro de Cuentas [C1..C8, C9]
         self.combo_account_filter = QComboBox()
         self.combo_account_filter.addItems([
             "Todas las Cuentas",
             "Solo [C1]",
             "Solo [C2]",
             "Solo [C7]",
+            "Solo [C9]",
             "Solo Direct / Free"
         ])
         self.combo_account_filter.currentIndexChanged.connect(self.apply_table_filters)
@@ -1815,6 +1942,7 @@ class TabRadar(QWidget):
         self.combo_category_filter.addItems([
             "Todas las Categorías",
             "🟢 Solo Respuestas OK / Coherentes",
+            "🟡 Coherentes + Cuota Agotada (Rate Limit)",
             "Solo Online (200 OK)",
             "Gratuitos / Auto (Free)",
             "Frontier / Reasoning (1M/Pro)",
@@ -1891,6 +2019,12 @@ class TabRadar(QWidget):
         btn_sel_coherent.setToolTip("Marca únicamente modelos con respuestas 200 OK válidas y sin errores de crédito")
         btn_sel_coherent.clicked.connect(lambda: self.select_table_by_filter("ok_coherent"))
         action_bar.addWidget(btn_sel_coherent)
+
+        btn_sel_coherent_quota = QPushButton("🟡 Coherentes + Cuota")
+        btn_sel_coherent_quota.setObjectName("SecondaryBtn")
+        btn_sel_coherent_quota.setToolTip("Marca modelos 200 OK + modelos operativos con rate-limit o cuota temporal (429) recuperable diariamente")
+        btn_sel_coherent_quota.clicked.connect(lambda: self.select_table_by_filter("ok_coherent_or_quota"))
+        action_bar.addWidget(btn_sel_coherent_quota)
 
         layout.addLayout(action_bar)
 
@@ -2028,7 +2162,7 @@ class TabRadar(QWidget):
         sync_row.addWidget(lbl_sync)
 
         self.chk_sync_only_verified = QCheckBox("🛡️ Solo Verificados (200 OK)")
-        self.chk_sync_only_verified.setChecked(True)
+        self.chk_sync_only_verified.setChecked(getattr(self, "_sync_only_verified_initial", True))
         self.chk_sync_only_verified.setToolTip("Al estar marcado, la propagación a OpenCode, Hermes y DSH inyecta EXCLUSIVAMENTE los modelos con respuesta 200 OK coherente y latencia válida en el radar.")
         self.chk_sync_only_verified.setStyleSheet("color: #10D2AD; font-weight: bold; font-size: 11px; margin-right: 6px;")
         sync_row.addWidget(self.chk_sync_only_verified)
@@ -2336,23 +2470,27 @@ class TabRadar(QWidget):
                 # 🟢 Solo Respuestas OK / Coherentes (excluye sin créditos, errores, timeouts)
                 if not is_coherent_ok_response(m):
                     continue
-            elif cat_idx == 2 and "200_ok" not in status and "online" not in status:
+            elif cat_idx == 2:
+                # 🟡 Coherentes + Cuota Agotada (Rate Limit / 429 recuperable)
+                if not is_coherent_or_quota_response(m):
+                    continue
+            elif cat_idx == 3 and "200_ok" not in status and "online" not in status:
                 continue
-            elif cat_idx == 3 and (m.get("category") != "free" and "free" not in m.get("badge", "").lower()):
+            elif cat_idx == 4 and (m.get("category") != "free" and "free" not in m.get("badge", "").lower()):
                 continue
-            elif cat_idx == 4 and m.get("category") != "frontier":
+            elif cat_idx == 5 and m.get("category") != "frontier":
                 continue
-            elif cat_idx == 5 and m.get("category") != "code":
+            elif cat_idx == 6 and m.get("category") != "code":
                 continue
-            elif cat_idx == 6 and prov != "google":
+            elif cat_idx == 7 and prov != "google":
                 continue
-            elif cat_idx == 7 and prov != "nvidia":
+            elif cat_idx == 8 and prov != "nvidia":
                 continue
-            elif cat_idx == 8 and prov != "openrouter":
+            elif cat_idx == 9 and prov != "openrouter":
                 continue
-            elif cat_idx == 9 and prov != "mistral":
+            elif cat_idx == 10 and prov != "mistral":
                 continue
-            elif cat_idx == 10 and prov != "deepseek":
+            elif cat_idx == 11 and prov != "deepseek":
                 continue
 
             filtered.append(m)
@@ -2369,9 +2507,9 @@ class TabRadar(QWidget):
             prov_color = get_provider_color(prov)
             badge_label = get_account_badge_label(tag)
 
-            # Col 0: Checkbox
+            # Col 0: Checkbox (b_ai inicia desmarcado por defecto para no contaminar motores)
             cb = QCheckBox()
-            cb.setChecked(True)
+            cb.setChecked(False if prov in ("b_ai", "bai", "b-ai-c7", "b_ai_c7") else True)
             self.table_checkboxes[m_id] = cb
             cb_container = QWidget()
             cb_lay = QHBoxLayout(cb_container)
@@ -2639,6 +2777,8 @@ class TabRadar(QWidget):
 
             if filter_type == "ok_coherent":
                 cb.setChecked(is_coherent_ok_response(m))
+            elif filter_type == "ok_coherent_or_quota":
+                cb.setChecked(is_coherent_or_quota_response(m))
             elif filter_type == "free":
                 is_free = (cat == "free") or (":free" in m_id_lower) or ("free" in m_id_lower) or ("auto" in m_id_lower)
                 cb.setChecked(is_free)
@@ -3158,6 +3298,7 @@ class TabRadar(QWidget):
         ("nvidia", "C7"): {"env_key": "C7_NVIDIA", "npm": "@ai-sdk/openai-compatible", "label": "NVIDIA NIM [C7]", "base_url": "https://integrate.api.nvidia.com/v1"},
         ("nvidia", "C1"): {"env_key": "C1_NVIDIA", "npm": "@ai-sdk/openai-compatible", "label": "NVIDIA NIM [C1]", "base_url": "https://integrate.api.nvidia.com/v1"},
         ("nvidia", "C2"): {"env_key": "C2_NVIDIA", "npm": "@ai-sdk/openai-compatible", "label": "NVIDIA NIM [C2]", "base_url": "https://integrate.api.nvidia.com/v1"},
+        ("nvidia", "C9"): {"env_key": "C9_NVIDIA_API", "npm": "@ai-sdk/openai-compatible", "label": "NVIDIA NIM [C9]", "base_url": "https://integrate.api.nvidia.com/v1"},
         ("mistral", "C1"): {"env_key": "C1_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI Pro [C1]"},
         ("mistral", "C2"): {"env_key": "C2_MISTRAL", "npm": "@ai-sdk/openai-compatible", "label": "Mistral AI [C2]", "base_url": "https://api.mistral.ai/v1"},
         ("deepseek", "DIRECT"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek Direct [Paid]", "base_url": "https://api.deepseek.com/v1"},
@@ -3167,6 +3308,8 @@ class TabRadar(QWidget):
         ("groq", "C1"): {"env_key": "C1_GROQ", "npm": "@ai-sdk/openai-compatible", "label": "Groq LPU [C1]", "base_url": "https://api.groq.com/openai/v1"},
         ("zai", "C1"): {"env_key": "C1_Z_AI", "npm": "@ai-sdk/openai-compatible", "label": "Z.AI GLM [C1]", "base_url": "https://api.z.ai/v1"},
         ("b_ai", "C7"): {"env_key": "C7_B_AI_API", "npm": "@ai-sdk/openai-compatible", "label": "B.AI GLM Hub [C7]", "base_url": "https://api.b.ai/v1"},
+        ("apinex", "C7"): {"env_key": "C7_APINEX_API", "npm": "@ai-sdk/openai-compatible", "label": "Apinex AI Hub [C7]", "base_url": "https://api.apinex.bond/v1"},
+        ("experientiallabs", "C7"): {"env_key": "C7_EXPERIENTIAL_LABS_API", "npm": "@ai-sdk/openai-compatible", "label": "ExperientialLabs [C7]", "base_url": "https://api.experientiallabs.ai/v1"},
         ("b_ai", "C1"): {"env_key": "C1_Z_AI", "npm": "@ai-sdk/openai-compatible", "label": "B.AI GLM Hub [C1]", "base_url": "https://api.z.ai/v1"},
         ("b_ai", "DEFAULT"): {"env_key": "C7_B_AI_API", "npm": "@ai-sdk/openai-compatible", "label": "B.AI GLM Hub [C7]", "base_url": "https://api.b.ai/v1"},
         ("bai", "C7"): {"env_key": "C7_B_AI_API", "npm": "@ai-sdk/openai-compatible", "label": "B.AI GLM Hub [C7]", "base_url": "https://api.b.ai/v1"},
@@ -3202,6 +3345,8 @@ class TabRadar(QWidget):
             return {"env_key": "C1_GROQ", "npm": "@ai-sdk/openai-compatible", "label": "Groq LPU [C1]", "base_url": "https://api.groq.com/openai/v1"}
         if prov_k in ("zai", "z_ai"):
             return {"env_key": "C1_Z_AI", "npm": "@ai-sdk/openai-compatible", "label": "Z.AI GLM [C1]", "base_url": "https://api.z.ai/v1"}
+        if prov_k in ("experientiallabs", "experiential_labs", "experiential"):
+            return {"env_key": "C7_EXPERIENTIAL_LABS_API", "npm": "@ai-sdk/openai-compatible", "label": "ExperientialLabs [C7]", "base_url": "https://api.experientiallabs.ai/v1"}
         return None
 
     def _build_provider_groups(self) -> Dict[str, Dict]:
@@ -3230,9 +3375,14 @@ class TabRadar(QWidget):
             if not checked:
                 continue
 
-            # Si está activo el filtro de solo verificados, exigir respuesta 200_OK coherente
+            # b_ai / bai está VETADO de propagación a menos que el usuario marque explícitamente el checkbox en la UI Y tenga respuesta 200 OK coherente
+            if prov in ("b_ai", "bai", "b-ai-c7", "b_ai_c7"):
+                if cb is None or not cb.isChecked() or not is_coherent_or_quota_response(m):
+                    continue
+
+            # Si está activo el filtro de solo verificados, exigir respuesta 200_OK coherente o cuota temporal
             if only_verified_checked:
-                if not is_coherent_ok_response(m):
+                if not is_coherent_or_quota_response(m):
                     continue
             else:
                 # Excluir errores fatales de credenciales o caídas totales
@@ -3251,49 +3401,62 @@ class TabRadar(QWidget):
 
             groups[(prov, tag)].append(m)
 
-        # 2. Asegurar que los proveedores esenciales configurados con API Key en .env no queden vacíos
-        curated_providers = set(str(m.get("provider", "")).lower() for m in CURATED_FLEET)
-        active_providers = set(k[0] for k in groups.keys())
-        missing_providers = curated_providers - active_providers
+        # 2. Asegurar proveedores esenciales SOLO si no han sido sondeados y descartados por saldo/auth
+        # Obtener lista de proveedores sondeados que fallaron categóricamente (ej: b_ai sin saldo)
+        failed_providers = set()
+        for item in self.table_models_map.values():
+            st = str(item.get("status", "")).upper()
+            pv = str(item.get("provider", "")).lower()
+            snip = str(item.get("response_snippet", "")).lower()
+            if st in ("NO_CREDITS", "AUTH_ERR", "SIN_KEY", "HTTP_402") or "credit" in snip or "saldo" in snip:
+                failed_providers.add(pv)
 
-        if missing_providers:
-            for m in CURATED_FLEET:
-                p = str(m.get("provider", "unknown")).lower()
-                t = str(m.get("account_tag", "C1")).upper()
-                if p in missing_providers:
-                    if resolve_api_key_for_model(m):
-                        groups[(p, t)].append(m)
+        if not only_verified_checked:
+            curated_providers = set(str(m.get("provider", "")).lower() for m in CURATED_FLEET if str(m.get("provider", "")).lower() not in ("b_ai", "bai", "b-ai-c7", "b_ai_c7"))
+            active_providers = set(k[0] for k in groups.keys())
+            missing_providers = (curated_providers - active_providers) - failed_providers
 
-        # 3. Fallback de seguridad si groups está completamente vacío
-        if not groups:
-            for m in CURATED_FLEET:
-                p = str(m.get("provider", "unknown")).lower()
-                t = str(m.get("account_tag", "C1")).upper()
-                if resolve_api_key_for_model(m):
-                    groups[(p, t)].append(m)
+            if missing_providers:
+                for m in CURATED_FLEET:
+                    p = str(m.get("provider", "unknown")).lower()
+                    t = str(m.get("account_tag", "C1")).upper()
+                    if p in missing_providers and p not in ("b_ai", "bai", "b-ai-c7", "b_ai_c7"):
+                        if resolve_api_key_for_model(m):
+                            groups[(p, t)].append(m)
 
         return dict(groups)
 
     def sync_to_opencode(self, silent: bool = False):
         try:
-            self._backup_file(OPENCODE_CONFIG)
-            existing_mcp = {}
-            if os.path.exists(OPENCODE_CONFIG):
+            is_custom_opencode = OPENCODE_CONFIG != os.path.expanduser("~/.config/opencode/opencode.jsonc")
+            source_path = OPENCODE_CONFIG if is_custom_opencode else (CANONICAL_SSOT if os.path.exists(CANONICAL_SSOT) else OPENCODE_CONFIG)
+
+            self._backup_file(source_path)
+            if source_path != OPENCODE_CONFIG and os.path.exists(OPENCODE_CONFIG):
+                self._backup_file(OPENCODE_CONFIG)
+
+            existing_json = {}
+            if os.path.exists(source_path):
                 try:
-                    with open(OPENCODE_CONFIG, "r", encoding="utf-8") as f:
-                        old_json = json.load(f)
-                        existing_mcp = old_json.get("mcp", {})
+                    with open(source_path, "r", encoding="utf-8") as f:
+                        existing_json = json.load(f)
                 except Exception:
-                    pass
+                    existing_json = {}
+
+            existing_mcp = existing_json.get("mcp", {})
+            existing_providers = existing_json.get("provider", {})
+            existing_enabled = set(existing_json.get("enabled_providers", []))
+            existing_model = existing_json.get("model")
+            existing_small_model = existing_json.get("small_model")
 
             # Construir providers dinámicamente desde la tabla activa
             groups = self._build_provider_groups()
-            providers = {}
+            scanned_providers = {}
             for (prov, tag), models in sorted(groups.items()):
                 cfg = self._get_provider_env_cfg(prov, tag)
                 if not cfg:
                     continue
-                prov_key = prov if prov not in providers else f"{prov}_{tag.lower()}"
+                prov_key = prov if prov not in scanned_providers else f"{prov}_{tag.lower()}"
                 options = {"apiKey": "{env:" + cfg["env_key"] + "}"}
                 if "base_url" in cfg:
                     options["baseURL"] = cfg["base_url"]
@@ -3301,7 +3464,7 @@ class TabRadar(QWidget):
                 whitelist_entries = []
                 for m in models:
                     m_id = m["id"]
-                    real_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/")) else m_id
+                    real_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/", "c9/")) else m_id
                     t_clean = tag.lower()
                     if prov in ("deepseek", "mistral") and t_clean not in ("c1", "principal", ""):
                         unique_key = f"{real_id}-{t_clean}"
@@ -3314,6 +3477,9 @@ class TabRadar(QWidget):
                         target_model_id = normalize_deepseek_slug(real_id)
 
                     entry = {"name": m.get("name", unique_key)}
+                    # Preservar contextWindow en el SSOT (DSH lo renderiza)
+                    if m.get("context"):
+                        entry["context"] = int(m["context"])
                     if unique_key != target_model_id:
                         entry["id"] = target_model_id
                     model_entries[unique_key] = entry
@@ -3323,7 +3489,7 @@ class TabRadar(QWidget):
                 BUILTIN_PROVIDERS = {"google", "openrouter", "mistral", "nvidia", "groq", "deepseek"}
                 is_builtin = prov_key in BUILTIN_PROVIDERS
 
-                if prov_key not in providers:
+                if prov_key not in scanned_providers:
                     p_data = {
                         "npm": cfg["npm"],
                         "name": cfg["label"],
@@ -3332,21 +3498,78 @@ class TabRadar(QWidget):
                     }
                     if is_builtin:
                         p_data["whitelist"] = whitelist_entries
-                    providers[prov_key] = p_data
+                    scanned_providers[prov_key] = p_data
                 else:
-                    providers[prov_key]["models"].update(model_entries)
-                    if is_builtin and "whitelist" in providers[prov_key]:
+                    scanned_providers[prov_key]["models"].update(model_entries)
+                    if is_builtin and "whitelist" in scanned_providers[prov_key]:
                         for w in whitelist_entries:
-                            if w not in providers[prov_key]["whitelist"]:
-                                providers[prov_key]["whitelist"].append(w)
+                            if w not in scanned_providers[prov_key]["whitelist"]:
+                                scanned_providers[prov_key]["whitelist"].append(w)
+
+            # ── MERGE DEFENSIVO (Anti-Whack-a-Mole) ──────────────────────────
+            # Se parte de los proveedores preexistentes en el SSOT para garantizar que
+            # timeouts, rate limits transitorios o filtros del radar no mutilen el catálogo.
+            final_providers = dict(existing_providers) if isinstance(existing_providers, dict) else {}
+
+            has_explicit_bai = any(
+                self.table_checkboxes.get(m_id) is not None
+                and self.table_checkboxes[m_id].isChecked()
+                and is_coherent_or_quota_response(m)
+                for m_id, m in self.table_models_map.items()
+                if str(m.get("provider", "")).lower() in ("b_ai", "bai", "b-ai-c7", "b_ai_c7")
+            )
+            if not has_explicit_bai:
+                for bad_p in ("b_ai", "bai", "b-ai-c7", "b_ai_c7"):
+                    if bad_p in final_providers:
+                        del final_providers[bad_p]
+
+            for prov_key, p_data in scanned_providers.items():
+                if prov_key in ("b_ai", "bai", "b-ai-c7", "b_ai_c7") and not has_explicit_bai:
+                    continue
+
+                if prov_key not in final_providers:
+                    final_providers[prov_key] = p_data
+                else:
+                    # El proveedor ya existe en el SSOT: merge defensivo de modelos
+                    existing_models = final_providers[prov_key].get("models", {})
+                    new_models = p_data.get("models", {})
+
+                    merged_models = dict(existing_models) if isinstance(existing_models, dict) else {}
+                    if isinstance(new_models, dict):
+                        for k, new_entry in new_models.items():
+                            if k in merged_models and isinstance(merged_models[k], dict) and isinstance(new_entry, dict):
+                                merged_entry = dict(merged_models[k])
+                                merged_entry.update(new_entry)
+                                # Preservar context si el nuevo no lo trae o viene en 0
+                                if "context" in merged_models[k] and ("context" not in new_entry or not new_entry["context"]):
+                                    merged_entry["context"] = merged_models[k]["context"]
+                                merged_models[k] = merged_entry
+                            else:
+                                merged_models[k] = new_entry
+
+                    # Guard anti-whack-a-mole: nunca recortar modelos existentes si el escaneo trajo menos por timeouts
+                    if len(merged_models) < len(existing_models):
+                        for em_k, em_v in existing_models.items():
+                            if em_k not in merged_models:
+                                merged_models[em_k] = em_v
+
+                    final_providers[prov_key]["models"] = merged_models
+
+                    if "options" in p_data:
+                        final_providers[prov_key]["options"] = p_data["options"]
+                    if "npm" in p_data:
+                        final_providers[prov_key]["npm"] = p_data["npm"]
+                    if "name" in p_data:
+                        final_providers[prov_key]["name"] = p_data["name"]
+
+                    if "whitelist" in final_providers[prov_key] or "whitelist" in p_data:
+                        old_wl = final_providers[prov_key].get("whitelist", [])
+                        new_wl = p_data.get("whitelist", [])
+                        final_providers[prov_key]["whitelist"] = list(dict.fromkeys(old_wl + new_wl + list(merged_models.keys())))
 
             # Seleccionar modelo principal (preferir gemini-3.7-flash si existe)
-            main_model = "google/gemini-3.7-flash"
-            small_model = "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
-            if "gemini-3.7-flash" in self.table_models_map:
-                main_model = "google/gemini-3.7-flash"
-            elif self.table_models_map:
-                main_model = next(iter(self.table_models_map))
+            main_model = existing_model or "google/gemini-3.7-flash"
+            small_model = existing_small_model or "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
 
             ALL_KNOWN_NATIVE_PROVIDERS = [
                 "alibaba", "aliyun", "amazon-bedrock", "anthropic", "azure", "bai",
@@ -3355,15 +3578,27 @@ class TabRadar(QWidget):
                 "perplexity", "replicate", "tabitoken", "together", "upstage",
                 "vertex", "vllm", "voyage", "xai", "zen"
             ]
-            disabled_providers = [p for p in ALL_KNOWN_NATIVE_PROVIDERS if p not in providers and p not in ("bai", "b_ai", "b-ai-c7", "b_ai_c7")]
+            disabled_set = set(p for p in ALL_KNOWN_NATIVE_PROVIDERS if p not in final_providers)
+            if not has_explicit_bai:
+                disabled_set.add("b_ai")
+                disabled_set.add("bai")
+            disabled_providers = sorted(list(disabled_set))
+
+            enabled_set = (existing_enabled | set(final_providers.keys()))
+            if not has_explicit_bai:
+                enabled_set.discard("b_ai")
+                enabled_set.discard("bai")
+                enabled_set.discard("b_ai_c7")
+                enabled_set.discard("b-ai-c7")
+            enabled_providers = sorted(list(enabled_set))
 
             opencode_cfg = {
                 "$schema": "https://opencode.ai/config.json",
                 "model": main_model,
                 "small_model": small_model,
                 "disabled_providers": disabled_providers,
-                "enabled_providers": list(providers.keys()),
-                "provider": providers
+                "enabled_providers": enabled_providers,
+                "provider": final_providers
             }
             if existing_mcp:
                 opencode_cfg["mcp"] = existing_mcp
@@ -3371,16 +3606,15 @@ class TabRadar(QWidget):
             os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
             atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
 
-            # Replicar a ~/.opencode/opencode.jsonc si la carpeta existe
-            alt_opencode = os.path.expanduser("~/.opencode/opencode.jsonc")
-            if os.path.exists(os.path.dirname(alt_opencode)):
-                self._backup_file(alt_opencode)
-                atomic_json_write(alt_opencode, opencode_cfg)
+            # Replicar a ~/.opencode/opencode.jsonc solo en ejecuciones reales (no en tests aislados)
+            if not is_custom_opencode and os.path.exists(os.path.dirname(CANONICAL_SSOT)):
+                self._backup_file(CANONICAL_SSOT)
+                atomic_json_write(CANONICAL_SSOT, opencode_cfg)
 
-            model_count = sum(len(p.get("models", {})) for p in providers.values())
-            self.log(f"✅ OpenCode sincronizado: {len(providers)} proveedores autorizados, {model_count} modelos → {OPENCODE_CONFIG}")
+            model_count = sum(len(p.get("models", {})) for p in final_providers.values())
+            self.log(f"✅ OpenCode sincronizado (merge defensivo): {len(final_providers)} proveedores autorizados, {model_count} modelos → {OPENCODE_CONFIG}")
             if not silent:
-                QMessageBox.information(self, "OpenCode Sincronizado", f"✅ Flota dinámica exportada a OpenCode:\n\n• {len(providers)} proveedores autorizados\n• {model_count} modelos\n• {OPENCODE_CONFIG}")
+                QMessageBox.information(self, "OpenCode Sincronizado", f"✅ Flota sincronizada a OpenCode (merge defensivo SSOT):\n\n• {len(final_providers)} proveedores autorizados\n• {model_count} modelos\n• {OPENCODE_CONFIG}")
         except Exception as e:
             self.log(f"❌ Error sincronizando OpenCode: {e}")
             if not silent:
@@ -3392,32 +3626,6 @@ class TabRadar(QWidget):
             if not os.path.exists(os.path.dirname(dsh_config)):
                 return
             self._backup_file(dsh_config)
-
-            groups = self._build_provider_groups()
-            dsh_providers = {}
-            for (prov, tag), models in sorted(groups.items()):
-                cfg = self._get_provider_env_cfg(prov, tag)
-                if not cfg:
-                    continue
-                prov_key = prov if prov not in dsh_providers else f"{prov}_{tag.lower()}"
-                base_url = cfg.get("base_url", models[0].get("base_url", ""))
-                dsh_models = []
-                for m in models:
-                    m_id = m["id"]
-                    clean_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/")) else m_id
-                    ctx = m.get("context", 131072)
-                    dsh_models.append({
-                        "id": clean_id,
-                        "name": m.get("name", clean_id),
-                        "contextWindow": ctx
-                    })
-                dsh_providers[prov_key] = {
-                    "api": "openai-completions",
-                    "displayName": cfg["label"],
-                    "apiKeyEnv": cfg["env_key"],
-                    "baseURL": base_url,
-                    "models": dsh_models
-                }
 
             import yaml
             existing_data = {}
@@ -3431,19 +3639,88 @@ class TabRadar(QWidget):
             if not isinstance(existing_data, dict):
                 existing_data = {}
 
+            existing_providers = existing_data.get("llm-pi-ai", {}).get("providers", {})
+            if not isinstance(existing_providers, dict):
+                existing_providers = {}
+
+            groups = self._build_provider_groups()
+            scanned_dsh_providers = {}
+            for (prov, tag), models in sorted(groups.items()):
+                if prov in ("b_ai", "bai", "b-ai-c7", "b_ai_c7"):
+                    continue
+                cfg = self._get_provider_env_cfg(prov, tag)
+                if not cfg:
+                    continue
+                prov_key = prov if prov not in scanned_dsh_providers else f"{prov}_{tag.lower()}"
+                base_url = cfg.get("base_url", models[0].get("base_url", ""))
+                dsh_models = []
+                for m in models:
+                    m_id = m["id"]
+                    clean_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/", "c9/")) else m_id
+                    ctx = m.get("context", 131072)
+                    dsh_models.append({
+                        "id": clean_id,
+                        "name": m.get("name", clean_id),
+                        "contextWindow": ctx
+                    })
+                scanned_dsh_providers[prov_key] = {
+                    "api": "openai-completions",
+                    "displayName": cfg["label"],
+                    "apiKeyEnv": cfg["env_key"],
+                    "baseURL": base_url,
+                    "models": dsh_models
+                }
+
+            final_dsh_providers = dict(existing_providers)
+            for bad_p in ("b_ai", "bai", "b_ai_c7", "b-ai-c7"):
+                if bad_p in final_dsh_providers:
+                    del final_dsh_providers[bad_p]
+
+            for prov_key, p_data in scanned_dsh_providers.items():
+                if prov_key not in final_dsh_providers:
+                    final_dsh_providers[prov_key] = p_data
+                else:
+                    old_models = {m["id"]: m for m in final_dsh_providers[prov_key].get("models", []) if isinstance(m, dict) and "id" in m}
+                    new_models = {m["id"]: m for m in p_data.get("models", []) if isinstance(m, dict) and "id" in m}
+                    merged_models = dict(old_models)
+                    for mid, n_m in new_models.items():
+                        if mid in merged_models:
+                            m_entry = dict(merged_models[mid])
+                            m_entry.update(n_m)
+                            # Preservar contextWindow enriquecido del SSOT si el escaneo viene con fallback
+                            if "contextWindow" in merged_models[mid] and (n_m.get("contextWindow") in (None, 0, 131072)):
+                                m_entry["contextWindow"] = merged_models[mid]["contextWindow"]
+                            merged_models[mid] = m_entry
+                        else:
+                            merged_models[mid] = n_m
+
+                    # Guard anti-whack-a-mole: nunca recortar modelos
+                    if len(merged_models) < len(old_models):
+                        for om_id, om_val in old_models.items():
+                            if om_id not in merged_models:
+                                merged_models[om_id] = om_val
+
+                    final_dsh_providers[prov_key]["models"] = list(merged_models.values())
+                    if "baseURL" in p_data:
+                        final_dsh_providers[prov_key]["baseURL"] = p_data["baseURL"]
+                    if "apiKeyEnv" in p_data:
+                        final_dsh_providers[prov_key]["apiKeyEnv"] = p_data["apiKeyEnv"]
+                    if "displayName" in p_data:
+                        final_dsh_providers[prov_key]["displayName"] = p_data["displayName"]
+
             existing_data["version"] = 2
             existing_data["theme"] = existing_data.get("theme", "dark")
             if "llm-pi-ai" not in existing_data:
                 existing_data["llm-pi-ai"] = {}
-            existing_data["llm-pi-ai"]["providers"] = dsh_providers
+            existing_data["llm-pi-ai"]["providers"] = final_dsh_providers
 
             with open(dsh_config, "w", encoding="utf-8") as f:
                 yaml.dump(existing_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
-            model_count = sum(len(p.get("models", [])) for p in dsh_providers.values())
-            self.log(f"✅ DeepSeek Harness (DSH) sincronizado: {len(dsh_providers)} proveedores, {model_count} modelos → {dsh_config}")
+            model_count = sum(len(p.get("models", [])) for p in final_dsh_providers.values())
+            self.log(f"✅ DeepSeek Harness (DSH) sincronizado (merge defensivo): {len(final_dsh_providers)} proveedores, {model_count} modelos → {dsh_config}")
             if not silent:
-                QMessageBox.information(self, "DSH Sincronizado", f"✅ Flota sincronizada a DeepSeek Harness:\n\n• {len(dsh_providers)} proveedores\n• {model_count} modelos\n• {dsh_config}")
+                QMessageBox.information(self, "DSH Sincronizado", f"✅ Flota sincronizada a DeepSeek Harness (merge defensivo):\n\n• {len(final_dsh_providers)} proveedores\n• {model_count} modelos\n• {dsh_config}")
         except Exception as e:
             self.log(f"❌ Error sincronizando DSH: {e}")
             if not silent:
@@ -3453,12 +3730,21 @@ class TabRadar(QWidget):
         try:
             self._backup_file(HERMES_CONFIG)
 
+            existing_hermes_cache = {}
+            if os.path.exists(HERMES_CACHE):
+                try:
+                    existing_hermes_cache = atomic_read_json(HERMES_CACHE)
+                except Exception:
+                    existing_hermes_cache = {}
+
             # Construir config YAML dinámicamente desde la tabla activa con diccionario deduplicado
             groups = self._build_provider_groups()
             providers_dict = {}
             hermes_cache = {}
 
             for (prov, tag), models in sorted(groups.items()):
+                if prov in ("b_ai", "bai", "b-ai-c7", "b_ai_c7"):
+                    continue
                 cfg = self._get_provider_env_cfg(prov, tag)
                 if not cfg:
                     continue
@@ -3467,7 +3753,7 @@ class TabRadar(QWidget):
                 model_ids = []
                 for m in models:
                     m_id = m["id"]
-                    clean_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/")) else m_id
+                    clean_id = m_id.split("/", 1)[-1] if m_id.startswith(("c1/", "c2/", "c7/", "c9/")) else m_id
                     if clean_id not in model_ids:
                         model_ids.append(clean_id)
 
@@ -3489,6 +3775,30 @@ class TabRadar(QWidget):
                             providers_dict[prov_key]["models"].append(mid)
                         if mid not in hermes_cache[prov_key]["models"]:
                             hermes_cache[prov_key]["models"].append(mid)
+
+            if isinstance(existing_hermes_cache, dict):
+                for pkey, pinfo in existing_hermes_cache.items():
+                    if pkey in ("b_ai", "bai", "b_ai_c7", "b-ai-c7"):
+                        continue
+                    old_models = pinfo.get("models", []) if isinstance(pinfo, dict) else []
+                    if pkey not in providers_dict:
+                        cfg = self._get_provider_env_cfg(pkey, "C1")
+                        if cfg:
+                            providers_dict[pkey] = {
+                                "name": cfg["label"],
+                                "env_key": cfg["env_key"],
+                                "base_url": cfg.get("base_url", ""),
+                                "models": list(old_models)
+                            }
+                            hermes_cache[pkey] = {
+                                "fp": f"{pkey}-dynamic-v4",
+                                "at": time.time(),
+                                "models": list(old_models)
+                            }
+                    else:
+                        merged_models = list(dict.fromkeys(old_models + providers_dict[pkey]["models"]))
+                        providers_dict[pkey]["models"] = merged_models
+                        hermes_cache[pkey]["models"] = merged_models
 
             providers_yaml = ""
             for pkey, pval in providers_dict.items():
@@ -3523,9 +3833,9 @@ fallback_model:
             atomic_json_write(HERMES_CACHE, hermes_cache)
 
             model_count = sum(len(c.get("models", [])) for c in hermes_cache.values())
-            self.log(f"✅ Hermes Agent sincronizado: {len(hermes_cache)} proveedores, {model_count} modelos → {HERMES_CONFIG}")
+            self.log(f"✅ Hermes Agent sincronizado (merge defensivo): {len(hermes_cache)} proveedores, {model_count} modelos → {HERMES_CONFIG}")
             if not silent:
-                QMessageBox.information(self, "Hermes Sincronizado", f"✅ Flota dinámica exportada a Hermes:\n\n• {len(hermes_cache)} proveedores\n• {model_count} modelos\n• {HERMES_CONFIG}")
+                QMessageBox.information(self, "Hermes Sincronizado", f"✅ Flota sincronizada a Hermes (merge defensivo):\n\n• {len(hermes_cache)} proveedores\n• {model_count} modelos\n• {HERMES_CONFIG}")
         except Exception as e:
             self.log(f"❌ Error sincronizando Hermes: {e}")
             if not silent:

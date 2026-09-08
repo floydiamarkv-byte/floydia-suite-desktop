@@ -66,6 +66,30 @@ SYNC_HP45_SCRIPT = ""
 EXPORT_HP45_KEYS_SCRIPT = ""
 
 
+def _ssot_provider_models(provider: str) -> list:
+    """Lee los modelos reales de un provider desde el SSOT (~/.opencode/opencode.jsonc).
+
+    Devuelve la unión de los modelos de todos los providers del SSOT cuyo id sea el
+    nombre base o empiece por '<nombre>_', para que cada cuenta (C1/C2/C7/C9)
+    refleje el catálogo curado en el SSOT en lugar del embebido en la app.
+    """
+    try:
+        with open(OPENCODE_SSOT, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        return []
+    ids = set()
+    for pid, pcfg in (cfg.get("provider") or {}).items():
+        if pid == provider or pid.startswith(provider + "_"):
+            models = pcfg.get("models") or {}
+            if isinstance(models, dict):
+                ids.update(models.keys())
+            elif isinstance(models, list):
+                for m in models:
+                    ids.add(m.get("id", m) if isinstance(m, dict) else m)
+    return sorted(ids)
+
+
 def load_env_vars() -> Dict[str, str]:
     """Lee el archivo .env sin exponer secretos en logs."""
     env_vars = {}
@@ -216,6 +240,19 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "auth_type": "Bearer",
         "enabled": False,
         "notes": "Cuenta C2 NVIDIA NIM: Respaldo y Kimi K3."
+    },
+    {
+        "id": "nvidia_c9",
+        "name": "NVIDIA NIM [C9]",
+        "provider": "nvidia",
+        "account_tag": "C9",
+        "env_key": "C9_NVIDIA_API",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "api_key": "",
+        "test_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Cuenta C9 NVIDIA NIM: Nemotron 3 Nano Omni y DeepSeek V4."
     },
 
     # ── DeepSeek Direct Multi-Cuenta (C1..C7) ──
@@ -388,19 +425,6 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "notes": "Token de inferencia Cloudflare Workers AI verificado y activo."
     },
     {
-        "id": "b_ai_c7",
-        "name": "B.AI Gateway Hub [C7]",
-        "provider": "b_ai",
-        "account_tag": "C7",
-        "env_key": "C7_B_AI_API",
-        "base_url": "https://api.b.ai/v1",
-        "api_key": "",
-        "test_model": "minimax-m3",
-        "auth_type": "Bearer",
-        "enabled": True,
-        "notes": "Gateway B.AI multi-modelo (44 LLMs integrados)."
-    },
-    {
         "id": "tokenrouter_c7",
         "name": "TokenRouter AI Hub [C7]",
         "provider": "tokenrouter",
@@ -412,6 +436,32 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "auth_type": "Bearer",
         "enabled": True,
         "notes": "Gateway TokenRouter (131 modelos multicloud)."
+    },
+    {
+        "id": "apinex_c7",
+        "name": "Apinex AI Hub [C7]",
+        "provider": "apinex",
+        "account_tag": "C7",
+        "env_key": "C7_APINEX_API",
+        "base_url": "https://api.apinex.bond/v1",
+        "api_key": "",
+        "test_model": "free/glm-5.3-flash",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Apinex Hub: 8 modelos tier free (free/glm-5.3-flash, free/deepseek-v4-flash-0731, free/gemini-3.8-flash...). Requiere base api.apinex.bond."
+    },
+    {
+        "id": "experientiallabs_c7",
+        "name": "ExperientialLabs [C7]",
+        "provider": "experientiallabs",
+        "account_tag": "C7",
+        "env_key": "C7_EXPERIENTIAL_LABS_API",
+        "base_url": "https://api.experientiallabs.ai/v1",
+        "api_key": "",
+        "test_model": "gpt-6-astra",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "ExperientialLabs AI Hub: GPT-6 Astra (1M), GPT-5, Claude 4.5, Mistral, LLaMA 3.3, Qwen y DeepSeek V3.1."
     },
     {
         "id": "zenmux_c7",
@@ -647,6 +697,9 @@ class ApiPingWorker(CancellableThread):
                 "Content-Type": "application/json",
                 "User-Agent": "FloydiaSuite/2.0-ApiManager"
             }
+            # Anti-ban Cloudflare (1010): apinex.bond / cerebras.ai requieren UA de navegador
+            if any(h in str(base_url) for h in ("apinex.bond", "cerebras.ai")):
+                headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
             if auth_type == "Bearer" and api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
             elif auth_type == "x-api-key" and api_key:
@@ -789,10 +842,27 @@ class PropagateAllWorker(CancellableThread):
                             "deepseek-reasoner": {"name": f"{badge} DeepSeek Reasoner R1"}
                         }
                 elif prov == "nvidia":
+                    # Catálogo canónico completo NVIDIA NIM (15 modelos) para C1/C7/C9
+                    _NV_CANONICAL = [
+                        ("deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash", 262144),
+                        ("deepseek-ai/deepseek-v4-pro-0813", "DeepSeek V4 Pro", 262144),
+                        ("moonshotai/kimi-k3", "Kimi K3 Frontier", 262144),
+                        ("minimaxai/minimax-m3", "MiniMax M3", 1048576),
+                        ("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "Nemotron 3 Nano", 256000),
+                        ("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", 262144),
+                        ("nvidia/nemotron-3.5-content-safety", "Nemotron 3.5 Content-Safety", 128000),
+                        ("nvidia/llama-3.1-nemoguard-8b-content-safety", "Nemoguard Content-Safety", 131072),
+                        ("nvidia/llama-3.1-nemoguard-8b-topic-control", "Nemoguard Topic-Control", 131072),
+                        ("nvidia/llama-3.1-nemotron-safety-guard-8b-v3", "Safety-Guard v3", 131072),
+                        ("poolside/laguna-xs-2.1", "Laguna XS 2.1", 128000),
+                        ("meta/llama-3.2-11b-vision-instruct", "Llama 3.2 11B Vision", 131072),
+                        ("nvidia/ising-calibration-1.5-31b", "Ising Calibration 31B", 131072),
+                        ("nvidia/riva-translate-4b-instruct-v1.1", "Riva Translate v1.1", 4096),
+                        ("nvidia/riva-translate-4b-instruct-v2", "Riva Translate v2", 4096),
+                    ]
                     models_dict = {
-                        "deepseek-ai/deepseek-v4-flash-0731": {"name": f"{badge} DeepSeek V4 Flash (NIM)"},
-                        "moonshotai/kimi-k3": {"name": f"{badge} Kimi K3 Frontier (NIM)"},
-                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {"name": f"{badge} Nemotron 3 Nano NIM"}
+                        mid: {"name": f"{badge} {nm} (NIM)", "context": cx}
+                        for mid, nm, cx in _NV_CANONICAL
                     }
                 elif prov == "mistral":
                     t_low = acc_tag.lower()
@@ -806,13 +876,54 @@ class PropagateAllWorker(CancellableThread):
                         }
                 elif prov == "openrouter":
                     models_dict = {
-                        "openrouter/auto": {"name": f"{badge} OpenRouter Auto"},
-                        "openrouter/free": {"name": f"{badge} OpenRouter Free"},
-                        "minimax/minimax-m3:free": {"name": f"{badge} MiniMax M3 Frontier"},
-                        "nvidia/nemotron-3-super-120b-a12b:free": {"name": f"{badge} Nemotron 3 Super 120B"},
-                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} Nemotron 3 Nano Reasoning"},
-                        "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 Frontier"},
-                        "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 Code"}
+                        "openrouter/free": {"name": f"{badge} Free Models Router", "context": 200000},
+                        "minimax/minimax-m3:free": {"name": f"{badge} MiniMax: MiniMax M3 (free)", "context": 1048576},
+                        "nvidia/nemotron-3-super-120b-a12b:free": {"name": f"{badge} NVIDIA: Nemotron 3 Super (free)", "context": 1000000},
+                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} NVIDIA: Nemotron 3 Nano Omni (free)", "context": 131072},
+                        "nvidia/nemotron-3.5-lightning:free": {"name": f"{badge} NVIDIA: Nemotron 3.5 Lightning (free)", "context": 262144},
+                        "nvidia/nemotron-3-ultra-550b-a55b:free": {"name": f"{badge} NVIDIA: Nemotron 3 Ultra (free)", "context": 262144},
+                        "poolside/laguna-s-2.1:free": {"name": f"{badge} Poolside: Laguna S 2.1 (free)", "context": 1048576},
+                        "poolside/laguna-xs-2.1:free": {"name": f"{badge} Poolside: Laguna XS 2.1 (free)", "context": 262144},
+                        "inclusionai/ling-3.0-flash-fin:free": {"name": f"{badge} inclusionAI: Ling 3.0 Flash Fin (free)", "context": 262144},
+                        "dots-studio/dots-3-note-preview:free": {"name": f"{badge} Dots Studio: Dots3-Note Preview (free)", "context": 131072},
+                        "liquid/lfm-2.5-2.6b:free": {"name": f"{badge} LiquidAI: LFM2.5-2.6B (free)", "context": 131072},
+                        "cohere/north-mini-code:free": {"name": f"{badge} Cohere: North Mini Code (free)", "context": 131072},
+                        "google/gemma-4-26b-a4b-it:free": {"name": f"{badge} Google: Gemma 4 26B A4B (free)", "context": 262144},
+                        "inclusionai/ling-3.0-flash-sante:free": {"name": f"{badge} inclusionAI: Ling 3.0 Flash Sante (free)", "context": 131072},
+                        "nvidia/nemotron-3.5-content-safety:free": {"name": f"{badge} NVIDIA: Nemotron 3.5 Content Safety (free)", "context": 131072},
+                        "google/gemma-4-31b-it:free": {"name": f"{badge} Google: Gemma 4 31B (free)", "context": 262144},
+                        "minimax/minimax-m2.7:free": {"name": f"{badge} MiniMax: MiniMax M2.7 (free)", "context": 204800},
+                    }
+                elif prov == "apinex":
+                    models_dict = {
+                        "free/glm-5.3-flash": {"name": f"{badge} GLM 5.3 Flash (Free)", "context": 128000},
+                        "free/deepseek-v4-flash-0731": {"name": f"{badge} DeepSeek V4 Flash (Free)", "context": 262144},
+                        "free/gemini-3.8-flash": {"name": f"{badge} Gemini 3.8 Flash (Free)", "context": 1048576},
+                        "free/gemini-3.1-pro": {"name": f"{badge} Gemini 3.1 Pro (Free)", "context": 1048576},
+                        "free/gpt-5.6-luna": {"name": f"{badge} GPT-5.6 Luna (Free)", "context": 256000},
+                        "free/qwen-3.8-max": {"name": f"{badge} Qwen 3.8 Max (Free)", "context": 262144},
+                        "free/muse-spark-1.3": {"name": f"{badge} Muse Spark 1.3 (Free)", "context": 128000},
+                        "free/deepseek-v4-pro-0813": {"name": f"{badge} DeepSeek V4 Pro (Free)", "context": 262144}
+                    }
+                elif prov == "experientiallabs":
+                    models_dict = {
+                        "gpt-6-astra": {"name": f"{badge} GPT-6 Astra", "context": 1048576},
+                        "gpt-6-astra-pro": {"name": f"{badge} GPT-6 Astra Pro", "context": 1048576},
+                        "gpt-5": {"name": f"{badge} GPT-5", "context": 262144},
+                        "claude-sonnet-4.5": {"name": f"{badge} Claude Sonnet 4.5", "context": 200000},
+                        "claude-opus-4.5": {"name": f"{badge} Claude Opus 4.5", "context": 200000},
+                        "grok-4": {"name": f"{badge} Grok 4", "context": 131072},
+                        "gpt-4o-mini": {"name": f"{badge} GPT-4o Mini", "context": 128000},
+                        "deepseek-v3.1": {"name": f"{badge} DeepSeek V3.1", "context": 131072},
+                        "codestral-2508": {"name": f"{badge} Codestral 2508", "context": 262144},
+                        "mistral-small-3.2-24b-instruct": {"name": f"{badge} Mistral Small 3.2 24B", "context": 131072},
+                        "mistral-large-2407": {"name": f"{badge} Mistral Large 2407", "context": 131072},
+                        "llama-3.3-70b-instruct": {"name": f"{badge} LLaMA 3.3 70B", "context": 131072},
+                        "qwen3.8-flash": {"name": f"{badge} Qwen 3.8 Flash", "context": 131072},
+                        "qwen3-coder-flash": {"name": f"{badge} Qwen 3 Coder Flash", "context": 131072},
+                        "glm-4.7-flash": {"name": f"{badge} GLM 4.7 Flash", "context": 128000},
+                        "aion-3.0": {"name": f"{badge} Aion 3.0", "context": 131072},
+                        "solar-pro-3": {"name": f"{badge} Solar Pro 3", "context": 65536}
                     }
                 else:
                     models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
@@ -894,6 +1005,10 @@ class PropagateAllWorker(CancellableThread):
                 else:
                     model_list = [tm]
 
+                ssot_models = _ssot_provider_models(prov)
+                if ssot_models:
+                    model_list = ssot_models
+
                 hermes_providers[prov_key] = {
                     "name": api.get('name', prov),
                     "env_key": env_k,
@@ -943,11 +1058,11 @@ fallback_model:
                 f.write(hermes_content)
 
             hermes_clean_cache = {
-                "google": {"fp": "google-curated-v4", "at": time.time(), "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]},
-                "openrouter": {"fp": "openrouter-curated-v4", "at": time.time(), "models": ["openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free", "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free"]},
-                "nvidia": {"fp": "nvidia-curated-v4", "at": time.time(), "models": ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]},
-                "mistral": {"fp": "mistral-curated-v4", "at": time.time(), "models": ["codestral-latest"]},
-                "deepseek": {"fp": "deepseek-curated-v4", "at": time.time(), "models": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]}
+                "google": {"fp": "google-ssot", "at": time.time(), "models": _ssot_provider_models("google")},
+                "openrouter": {"fp": "openrouter-ssot", "at": time.time(), "models": _ssot_provider_models("openrouter")},
+                "nvidia": {"fp": "nvidia-ssot", "at": time.time(), "models": _ssot_provider_models("nvidia")},
+                "mistral": {"fp": "mistral-ssot", "at": time.time(), "models": _ssot_provider_models("mistral")},
+                "deepseek": {"fp": "deepseek-ssot", "at": time.time(), "models": _ssot_provider_models("deepseek")}
             }
             atomic_json_write(HERMES_CACHE, hermes_clean_cache)
 
@@ -1113,7 +1228,6 @@ class ApiEditDialog(QDialog):
             "OpenAI Direct (openai)",
             "Ollama Local (ollama)",
             "Cloudflare Workers AI (cloudflare)",
-            "B.AI Gateway (b_ai)",
             "TokenRouter Hub (tokenrouter)",
             "ZenMux AI (zenmux)",
             "Alibaba DashScope / Qwen (dashscope)",
@@ -1252,7 +1366,6 @@ class ApiEditDialog(QDialog):
                 "openai": ("OpenAI Direct API", "OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4o-mini", "Bearer"),
                 "ollama": ("Ollama Local Homelab", f"{tag}_OLLAMA", "http://localhost:11434/v1", "llama3.2:3b", "None"),
                 "cloudflare": ("Cloudflare Workers AI", f"{tag}_CLOUDFLARE" if tag == "C7" else "CLOUDFLARE_API_TOKEN", "https://api.cloudflare.com/client/v4/user/tokens/verify", "@cf/qwen/qwen3-30b-a3b-fp8", "Bearer"),
-                "b_ai": ("B.AI Gateway Hub", f"{tag}_B_AI_API", "https://api.b.ai/v1", "minimax-m3", "Bearer"),
                 "tokenrouter": ("TokenRouter AI Hub", f"{tag}_TOKENROUTER_API", "https://api.tokenrouter.com/v1", "openai/gpt-5.4-nano", "Bearer"),
                 "zenmux": ("ZenMux AI Hub", f"{tag}_ZENMUX_API", "https://zenmux.ai/api/v1", "qwen/qwen3.8-flash", "Bearer"),
                 "dashscope": ("Alibaba DashScope / Qwen", f"{tag}_DASHSCOPE_API_KEY", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen-plus", "Bearer"),
