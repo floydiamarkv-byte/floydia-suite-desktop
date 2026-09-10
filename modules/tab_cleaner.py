@@ -368,6 +368,48 @@ class ActionTrashMounts(BleachAction):
                         yield (size, tpath, "PREVIEW")
 
 
+class ActionRemoteTrash(BleachAction):
+    """
+    Escanea y limpia la papelera remota en HP45 (~/.local/share/Trash)
+    vía SSH con timeout estricto anti-cuelgues.
+    """
+    def __init__(self, description: str = "Papelera Remota en HP45"):
+        super().__init__(description)
+        self.ip = os.environ.get("S25_HP45_IP", "192.168.1.200")
+        self.user = os.environ.get("S25_HP45_USER", "tec")
+
+    def execute(self, really_delete: bool, use_sudo: bool = False) -> Generator[Tuple[int, str, str], None, None]:
+        target_repr = f"{self.user}@{self.ip}:~/.local/share/Trash"
+        try:
+            ping_cmd = ["ssh", "-o", "ConnectTimeout=2", "-o", "BatchMode=yes", f"{self.user}@{self.ip}", "echo OK"]
+            p_res = subprocess.run(ping_cmd, capture_output=True, text=True, timeout=3)
+            if p_res.returncode != 0 or "OK" not in p_res.stdout:
+                yield (0, target_repr, "OFFLINE (Host no accesible)")
+                return
+
+            size_cmd = ["ssh", "-o", "ConnectTimeout=2", "-o", "BatchMode=yes", f"{self.user}@{self.ip}",
+                        "du -sb ~/.local/share/Trash 2>/dev/null | cut -f1"]
+            s_res = subprocess.run(size_cmd, capture_output=True, text=True, timeout=4)
+            size = 0
+            if s_res.returncode == 0 and s_res.stdout.strip().isdigit():
+                size = int(s_res.stdout.strip())
+
+            if not really_delete:
+                yield (size, target_repr, "PREVIEW")
+            else:
+                del_cmd = ["ssh", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes", f"{self.user}@{self.ip}",
+                           "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* ~/.local/share/Trash/expunged/* 2>/dev/null && echo DELETED"]
+                d_res = subprocess.run(del_cmd, capture_output=True, text=True, timeout=5)
+                if d_res.returncode == 0 and "DELETED" in d_res.stdout:
+                    yield (size, target_repr, "DELETED (SSH)")
+                else:
+                    yield (0, target_repr, "ERROR (SSH falló)")
+        except subprocess.TimeoutExpired:
+            yield (0, target_repr, "TIMEOUT (Host ocupado o lento)")
+        except Exception as exc:
+            yield (0, target_repr, f"ERROR: {exc}")
+
+
 class ActionVacuum(BleachAction):
     """Compactación y desfragmentación de base de datos SQLite sin borrar datos."""
     def __init__(self, db_path: str, description: str = "SQLite VACUUM"):
@@ -771,6 +813,19 @@ def build_system_cleaner_category() -> CleanerCategory:
         default_checked=False,
         is_warning=True,
         warning_msg="Elimina permanentemente papeleras en unidades montadas de /mnt/. Se recomienda activar Modo Sudo."
+    ))
+
+    # 3.1. Papelera Remota en HP45
+    cat.add_option(CleanerOption(
+        opt_id="system__hp45_trash",
+        label="💻 Papelera Remota HP45 (~/.local/share/Trash)",
+        description="Vacía los archivos de la papelera en la laptop secundaria HP45 (192.168.1.200) vía SSH.",
+        actions=[
+            ActionRemoteTrash("Papelera Remota HP45")
+        ],
+        default_checked=False,
+        is_warning=True,
+        warning_msg="Los archivos en la papelera de la laptop HP45 serán eliminados permanentemente vía SSH."
     ))
 
     # 4. Temporales Seguros de Usuario en /tmp

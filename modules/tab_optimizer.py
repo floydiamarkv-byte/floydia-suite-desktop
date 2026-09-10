@@ -297,12 +297,35 @@ class OptimizerWorker(CancellableThread):
                                     shutil.rmtree(os.path.join(root_dir, d), ignore_errors=True)
                                 except Exception:
                                     pass
-                        self.log_signal.emit(f"  ✅ Papelera saneada ({count} elementos eliminados).")
+                        self.log_signal.emit(f"  ✅ Papelera local saneada ({count} elementos eliminados).")
                         log_sre_action("trash_clean", trash_dir, "success", detail=f"{count} files removed")
                     except Exception as e:
-                        self.log_signal.emit(f"  ⚠️ Papelera: {e}")
+                        self.log_signal.emit(f"  ⚠️ Papelera local: {e}")
                 else:
-                    self.log_signal.emit("  ✅ Papelera limpia.")
+                    self.log_signal.emit("  ✅ Papelera local limpia.")
+
+                # Vaciado cooperativo de papelera remota en HP45
+                hp45_ip = os.environ.get("S25_HP45_IP", "192.168.1.200")
+                hp45_user = os.environ.get("S25_HP45_USER", "tec")
+                try:
+                    p_res = subprocess.run(
+                        ["ssh", "-o", "ConnectTimeout=2", "-o", "BatchMode=yes", f"{hp45_user}@{hp45_ip}", "echo OK"],
+                        capture_output=True, text=True, timeout=3
+                    )
+                    if p_res.returncode == 0 and "OK" in p_res.stdout:
+                        d_res = subprocess.run(
+                            ["ssh", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes", f"{hp45_user}@{hp45_ip}",
+                             "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* ~/.local/share/Trash/expunged/* 2>/dev/null && echo DELETED"],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        if d_res.returncode == 0 and "DELETED" in d_res.stdout:
+                            self.log_signal.emit(f"  ✅ Papelera remota en HP45 ({hp45_ip}) saneada.")
+                        else:
+                            self.log_signal.emit(f"  ℹ️ HP45 ({hp45_ip}): papelera limpia.")
+                    else:
+                        self.log_signal.emit(f"  ℹ️ HP45 ({hp45_ip}): offline (omitida).")
+                except Exception:
+                    self.log_signal.emit(f"  ℹ️ HP45 ({hp45_ip}): no alcanzable (omitida).")
 
             elif task == "browser_mem":
                 self.log_signal.emit("🌐 [5/5] Saneando manejadores crashpad de navegadores...")

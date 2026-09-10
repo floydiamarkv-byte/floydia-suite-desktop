@@ -107,7 +107,7 @@ DEFAULT_NODES: List[Dict[str, Any]] = [
     {
         "id": "hp45",
         "name": "Laptop HP45 (Secundaria)",
-        "subtitle": "EndeavourOS / Arch Linux",
+        "subtitle": "Arch Linux / Omarchy (Hyprland)",
         "icon": "💻",
         "enabled": True,
         "order": 2,
@@ -300,9 +300,9 @@ class DefaultRebootEngine:
             try:
                 ssh_base = ["ssh", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
                 if pwd:
-                    full_cmd = ["sshpass", "-p", pwd] + ssh_base + [f"{user}@{ip}", "systemctl reboot || reboot"]
+                    full_cmd = ["sshpass", "-p", pwd] + ssh_base + [f"{user}@{ip}", "sudo systemctl reboot || systemctl reboot || reboot"]
                 else:
-                    full_cmd = ssh_base + ["-o", "BatchMode=yes", f"{user}@{ip}", "systemctl reboot || reboot"]
+                    full_cmd = ssh_base + ["-o", "BatchMode=yes", f"{user}@{ip}", "sudo systemctl reboot || systemctl reboot || reboot"]
 
                 res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=8)
                 stderr_lower = (res.stderr or "").lower()
