@@ -1550,6 +1550,163 @@ class DeepSeekExportDialog(QDialog):
             cb.setText(yaml_text)
             QMessageBox.information(self, "Copiado", "✅ Configuración YAML de DeepSeek copiada al portapapeles.")
 
+class AgentResetDefaultsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🔄 Restablecer Motores de Agentes a Defecto")
+        self.setMinimumWidth(560)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLOR_BG_DARK};
+                color: {COLOR_TEXT_MAIN};
+            }}
+            QCheckBox {{
+                color: {COLOR_TEXT_MAIN};
+                font-size: 10pt;
+                padding: 4px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+            }}
+            QLabel {{
+                color: {COLOR_TEXT_MAIN};
+            }}
+        """)
+        self.selected_agents: List[str] = []
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("🔄 Restablecer Motores de Agentes a Configuración por Defecto")
+        title.setFont(QFont("Inter", 12, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {COLOR_PRIMARY_CYAN};")
+        layout.addWidget(title)
+
+        desc = QLabel(
+            "Selecciona los agentes cuyos motores y APIs programadas deseas eliminar para "
+            "volver a su configuración estándar y limpia.\n"
+            "🛡️ <b>Regla de Seguridad:</b> Los servidores y herramientas MCP se preservan intactos, "
+            "y se genera un respaldo <code>.bak</code> automático de cada archivo."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 9pt;")
+        layout.addWidget(desc)
+
+        group_box = QFrame()
+        group_box.setObjectName("CardFrame")
+        group_box.setStyleSheet(f"""
+            QFrame#CardFrame {{
+                background-color: {COLOR_BG_CARD};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 8px;
+                padding: 10px;
+            }}
+        """)
+        group_layout = QVBoxLayout(group_box)
+        group_layout.setSpacing(8)
+
+        self.cb_opencode = QCheckBox("OpenCode (~/.config/opencode/opencode.jsonc)")
+        self.cb_opencode.setChecked(True)
+        self.cb_opencode.setToolTip("Elimina proveedores inyectados y modelos forzados; preserva bloques MCP.")
+        group_layout.addWidget(self.cb_opencode)
+
+        self.cb_hermes = QCheckBox("Hermes Agent (~/.hermes/config.yaml & caché)")
+        self.cb_hermes.setChecked(True)
+        self.cb_hermes.setToolTip("Restaura config base de Hermes y purga la caché de modelos.")
+        group_layout.addWidget(self.cb_hermes)
+
+        self.cb_dsh = QCheckBox("DeepSeek Harness / DSH (SCRIPTS/dsh-settings.yaml & ~/.dsh/)")
+        self.cb_dsh.setChecked(True)
+        self.cb_dsh.setToolTip("Elimina proveedores API custom en llm-pi-ai y vuelve a plantilla limpia.")
+        group_layout.addWidget(self.cb_dsh)
+
+        self.cb_zed = QCheckBox("Zed Editor (~/.config/zed/settings.json)")
+        self.cb_zed.setChecked(True)
+        self.cb_zed.setToolTip("Elimina bloque 'agent' personalizado en la configuración de Zed.")
+        group_layout.addWidget(self.cb_zed)
+
+        self.cb_antigravity = QCheckBox("Antigravity IDE (~/.config/Antigravity IDE/User/settings.json)")
+        self.cb_antigravity.setChecked(True)
+        self.cb_antigravity.setToolTip("Elimina sobreescrituras de modelos API externos.")
+        group_layout.addWidget(self.cb_antigravity)
+
+        self.cb_floydia_cache = QCheckBox("Caché Local de FloydIA Suite (cache/custom_apis.json)")
+        self.cb_floydia_cache.setChecked(False)
+        self.cb_floydia_cache.setToolTip("Vacía la lista de APIs registradas en el propio panel de FloydIA Suite.")
+        group_layout.addWidget(self.cb_floydia_cache)
+
+        layout.addWidget(group_box)
+
+        sel_row = QHBoxLayout()
+        btn_sel_all = QPushButton("☑️ Marcar Todos")
+        btn_sel_all.setObjectName("SecondaryBtn")
+        btn_sel_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_sel_all.clicked.connect(self.select_all)
+        sel_row.addWidget(btn_sel_all)
+
+        btn_desel_all = QPushButton("⬜ Desmarcar")
+        btn_desel_all.setObjectName("SecondaryBtn")
+        btn_desel_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_desel_all.clicked.connect(self.deselect_all)
+        sel_row.addWidget(btn_desel_all)
+        sel_row.addStretch()
+        layout.addLayout(sel_row)
+
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+
+        self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel.setObjectName("SecondaryBtn")
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(self.btn_cancel)
+
+        self.btn_confirm = QPushButton("⚠️ Ejecutar Restablecimiento")
+        self.btn_confirm.setObjectName("PrimaryBtn")
+        self.btn_confirm.setStyleSheet("background-color: #DC2626; color: white; font-weight: bold;")
+        self.btn_confirm.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_confirm.clicked.connect(self.confirm_and_accept)
+        btn_box.addWidget(self.btn_confirm)
+
+        layout.addLayout(btn_box)
+
+    def select_all(self):
+        for cb in [self.cb_opencode, self.cb_hermes, self.cb_dsh, self.cb_zed, self.cb_antigravity, self.cb_floydia_cache]:
+            cb.setChecked(True)
+
+    def deselect_all(self):
+        for cb in [self.cb_opencode, self.cb_hermes, self.cb_dsh, self.cb_zed, self.cb_antigravity, self.cb_floydia_cache]:
+            cb.setChecked(False)
+
+    def confirm_and_accept(self):
+        keys = []
+        if self.cb_opencode.isChecked(): keys.append("opencode")
+        if self.cb_hermes.isChecked(): keys.append("hermes")
+        if self.cb_dsh.isChecked(): keys.append("dsh")
+        if self.cb_zed.isChecked(): keys.append("zed")
+        if self.cb_antigravity.isChecked(): keys.append("antigravity")
+        if self.cb_floydia_cache.isChecked(): keys.append("floydia_cache")
+
+        if not keys:
+            QMessageBox.warning(self, "Sin Selección", "Debes seleccionar al menos un agente para restablecer.")
+            return
+
+        resp = QMessageBox.question(
+            self,
+            "Confirmar Restablecimiento",
+            f"¿Estás seguro de restablecer los motores de {len(keys)} agente(s)?\n\n"
+            "Se eliminarán los proveedores y modelos programados, volviendo a la configuración por defecto.\n"
+            "Los servidores MCP se conservarán intactos y se crearán copias de seguridad .bak.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if resp == QMessageBox.StandardButton.Yes:
+            self.selected_agents = keys
+            self.accept()
+
 
 class TabApiManager(QWidget):
     def __init__(self):
@@ -1631,6 +1788,14 @@ class TabApiManager(QWidget):
         self.btn_propagate_all.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         self.btn_propagate_all.clicked.connect(self.propagate_all_agents)
         top_bar.addWidget(self.btn_propagate_all)
+
+        self.btn_reset_defaults = QPushButton("🔄 Restablecer Motores a Defecto")
+        self.btn_reset_defaults.setObjectName("SecondaryBtn")
+        self.btn_reset_defaults.setStyleSheet("background-color: #7F1D1D; color: #FCA5A5; border: 1px solid #DC2626;")
+        self.btn_reset_defaults.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reset_defaults.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
+        self.btn_reset_defaults.clicked.connect(self.open_reset_defaults_dialog)
+        top_bar.addWidget(self.btn_reset_defaults)
 
         layout.addLayout(top_bar)
 
@@ -2153,6 +2318,52 @@ class TabApiManager(QWidget):
         if self.propagate_worker:
             self.propagate_worker.deleteLater()
             self.propagate_worker = None
+
+    def open_reset_defaults_dialog(self):
+        dlg = AgentResetDefaultsDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            selected = dlg.selected_agents
+            if not selected:
+                return
+            self.log(f"🔄 Iniciando restablecimiento de {len(selected)} agente(s) a valores por defecto...")
+
+            try:
+                for candidate in [
+                    os.path.join(WORKSPACE_ROOT, "SCRIPTS"),
+                    os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS"),
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "SCRIPTS"),
+                    os.path.dirname(os.path.abspath(__file__))
+                ]:
+                    if os.path.exists(candidate) and candidate not in sys.path:
+                        sys.path.insert(0, candidate)
+                import reset_agent_engines
+                results = reset_agent_engines.execute_resets(selected)
+
+                success_count = 0
+                detail_lines = []
+                for name, ok, msg in results:
+                    if ok:
+                        success_count += 1
+                        self.log(f"  ✅ [{name}]: {msg}")
+                    else:
+                        self.log(f"  ❌ [{name}]: {msg}")
+                    detail_lines.append(f"{'✅' if ok else '❌'} {name}: {msg}")
+
+                # Si se reseteó la caché local de FloydIA Suite, recargar
+                if "floydia_cache" in selected:
+                    self.init_data()
+                    self.populate_table()
+                    self.update_kpi_dashboard()
+
+                QMessageBox.information(
+                    self,
+                    "Restablecimiento Completado",
+                    f"Se completó el restablecimiento ({success_count}/{len(selected)} exitosos).\n\n" +
+                    "\n".join(detail_lines)
+                )
+            except Exception as e:
+                self.log(f"❌ Error durante el restablecimiento: {e}")
+                QMessageBox.critical(self, "Error", f"Fallo al ejecutar el restablecimiento: {e}")
 
     def sync_single_target(self, target: str):
         """Propaga configuración SOLO al agente específico solicitado."""
