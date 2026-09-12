@@ -1325,11 +1325,10 @@ class TabCleaner(QWidget):
         splitter.setStretchFactor(1, 6)
         layout.addWidget(splitter)
 
-        # Detectar sudo inicial
-        if check_sudo_active():
-            self.chk_sudo.setChecked(True)
-            self.lbl_sudo_status.setText("🟢 Sudo: Activo (root)")
-            self.lbl_sudo_status.setStyleSheet("color: #10B981; background-color: rgba(16, 185, 129, 0.15); border: 1px solid #10B981; border-radius: 4px; padding: 3px 8px;")
+        # Inicializar estado visual de Sudo (inactivo por defecto, controlado por el usuario)
+        self.chk_sudo.setChecked(False)
+        self.lbl_sudo_status.setText("🛡️ Sudo: Inactivo")
+        self.lbl_sudo_status.setStyleSheet("color: #94A3B8; background-color: rgba(148, 163, 184, 0.1); border: 1px solid #475569; border-radius: 4px; padding: 3px 8px;")
 
         # Log inicial de bienvenida
         self.append_log("🟢 Módulo SRE BleachBit Cleaner inicializado.", "success")
@@ -1673,9 +1672,11 @@ class TabCleaner(QWidget):
                             child.setCheckState(0, Qt.CheckState.Unchecked)
             self.tree.blockSignals(False)
 
-        if state.get("sudo_enabled", False):
-            if check_sudo_active():
-                self.chk_sudo.setChecked(True)
+        sudo_wanted = state.get("sudo_enabled", False)
+        if sudo_wanted and check_sudo_active():
+            self.chk_sudo.setChecked(True)
+        else:
+            self._reset_sudo_ui()
 
     def shutdown(self):
         """Detiene ordenadamente los workers si están en ejecución."""
