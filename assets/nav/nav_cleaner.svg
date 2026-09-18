@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="gradClean" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5E5CE6"/>
+      <stop offset="100%" stop-color="#BF5AF2"/>
+    </linearGradient>
+    <filter id="shadowClean" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect x="1" y="1" width="30" height="30" rx="7.5" fill="url(#gradClean)" filter="url(#shadowClean)"/>
+  <rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1"/>
+  <!-- SF Symbol: Broom / Sparkle Clean -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19 7 L25 13"/>
+    <path d="M17.5 8.5 L12.5 13.5 C11.5 14.5 11 16 11 17.5 L11 23 C11 24 12 25 13 25 L18.5 25 C20 25 21.5 24.5 22.5 23.5 L27.5 18.5 L17.5 8.5 Z" fill="#FFFFFF" fill-opacity="0.25"/>
+    <path d="M7 21 L10 21"/>
+    <path d="M8 25 L11 25"/>
+  </g>
+  <circle cx="8" cy="9" r="1.5" fill="#FFFFFF"/>
+</svg>

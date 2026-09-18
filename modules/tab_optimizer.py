@@ -13,11 +13,12 @@ import shutil
 import subprocess
 import signal
 import getpass
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
 import psutil
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer, QThread, QObject
-from PyQt6.QtGui import QFont, QColor, QCursor
+from PyQt6.QtGui import QFont, QColor, QCursor, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QFrame, QProgressBar, QPlainTextEdit, QGridLayout,
@@ -34,12 +35,6 @@ from theme import (
 CURRENT_USER = getpass.getuser()
 
 def find_workspace_root() -> str:
-    curr = os.path.abspath(__file__)
-    while curr and curr != "/":
-        if (os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_all.sh"))
-                and os.path.exists(os.path.join(curr, "memory-bank"))):
-            return curr
-        curr = os.path.dirname(curr)
     curr = os.path.abspath(__file__)
     while curr and curr != "/":
         if os.path.exists(os.path.join(curr, ".env")) or os.path.exists(os.path.join(curr, "requirements.txt")):
@@ -98,16 +93,20 @@ def terminate_verified_processes(processes: List[psutil.Process], grace_seconds:
     terminated = 0
     errors: List[str] = []
 
-    for proc in processes:
+    # Excluir de forma ESTRICTA el PID actual y el de su padre desde el inicio
+    safe_processes = [
+        p for p in processes
+        if p.pid not in {os.getpid(), os.getppid()}
+    ]
+
+    for proc in safe_processes:
         try:
-            if proc.pid in {os.getpid(), os.getppid()}:
-                continue
             proc.terminate()
             terminated += 1
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
             errors.append(f"PID {proc.pid}: {exc}")
 
-    _, alive = psutil.wait_procs(processes, timeout=grace_seconds)
+    _, alive = psutil.wait_procs(safe_processes, timeout=grace_seconds)
 
     for proc in alive:
         try:
@@ -304,28 +303,7 @@ class OptimizerWorker(CancellableThread):
                 else:
                     self.log_signal.emit("  ✅ Papelera local limpia.")
 
-                # Vaciado cooperativo de papelera remota en HP45
-                hp45_ip = os.environ.get("S25_HP45_IP", "192.168.1.200")
-                hp45_user = os.environ.get("S25_HP45_USER", "tec")
-                try:
-                    p_res = subprocess.run(
-                        ["ssh", "-o", "ConnectTimeout=2", "-o", "BatchMode=yes", f"{hp45_user}@{hp45_ip}", "echo OK"],
-                        capture_output=True, text=True, timeout=3
-                    )
-                    if p_res.returncode == 0 and "OK" in p_res.stdout:
-                        d_res = subprocess.run(
-                            ["ssh", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes", f"{hp45_user}@{hp45_ip}",
-                             "rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* ~/.local/share/Trash/expunged/* 2>/dev/null && echo DELETED"],
-                            capture_output=True, text=True, timeout=5
-                        )
-                        if d_res.returncode == 0 and "DELETED" in d_res.stdout:
-                            self.log_signal.emit(f"  ✅ Papelera remota en HP45 ({hp45_ip}) saneada.")
-                        else:
-                            self.log_signal.emit(f"  ℹ️ HP45 ({hp45_ip}): papelera limpia.")
-                    else:
-                        self.log_signal.emit(f"  ℹ️ HP45 ({hp45_ip}): offline (omitida).")
-                except Exception:
-                    self.log_signal.emit(f"  ℹ️ HP45 ({hp45_ip}): no alcanzable (omitida).")
+
 
             elif task == "browser_mem":
                 self.log_signal.emit("🌐 [5/5] Saneando manejadores crashpad de navegadores...")
@@ -470,9 +448,13 @@ class TabOptimizer(QWidget):
         top_box.addLayout(title_box)
         top_box.addStretch()
 
-        self.btn_full_opt = QPushButton("🚀 OPTIMIZACIÓN TOTAL (1 CLIC)")
+        self.btn_full_opt = QPushButton("OPTIMIZACIÓN TOTAL (1 CLIC)")
         self.btn_full_opt.setObjectName("PrimaryBtn")
         self.btn_full_opt.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_rocket = Path(__file__).resolve().parent.parent / "assets" / "icons" / "btn_rocket.svg"
+        if icon_rocket.exists():
+            self.btn_full_opt.setIcon(QIcon(str(icon_rocket)))
+            self.btn_full_opt.setIconSize(QSize(16, 16))
         self.btn_full_opt.clicked.connect(self.run_all_optimizations)
         top_box.addWidget(self.btn_full_opt)
 
@@ -585,9 +567,13 @@ class TabOptimizer(QWidget):
         self.combo_proc_filter.currentIndexChanged.connect(self.apply_proc_filter)
         proc_top.addWidget(self.combo_proc_filter)
 
-        self.btn_refresh_procs = QPushButton("🔄 Actualizar")
+        self.btn_refresh_procs = QPushButton("Actualizar")
         self.btn_refresh_procs.setObjectName("SecondaryBtn")
         self.btn_refresh_procs.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_refresh = Path(__file__).resolve().parent.parent / "assets" / "icons" / "btn_refresh.svg"
+        if icon_refresh.exists():
+            self.btn_refresh_procs.setIcon(QIcon(str(icon_refresh)))
+            self.btn_refresh_procs.setIconSize(QSize(14, 14))
         self.btn_refresh_procs.clicked.connect(self.scan_processes)
         proc_top.addWidget(self.btn_refresh_procs)
 
@@ -626,15 +612,23 @@ class TabOptimizer(QWidget):
         proc_actions.addWidget(btn_desel_all_p)
         proc_actions.addStretch()
 
-        self.btn_restart_service = QPushButton("🔄 Reiniciar Servicio")
+        self.btn_restart_service = QPushButton("Reiniciar Servicio")
         self.btn_restart_service.setObjectName("SecondaryBtn")
         self.btn_restart_service.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_restart = Path(__file__).resolve().parent.parent / "assets" / "icons" / "btn_restart.svg"
+        if icon_restart.exists():
+            self.btn_restart_service.setIcon(QIcon(str(icon_restart)))
+            self.btn_restart_service.setIconSize(QSize(15, 15))
         self.btn_restart_service.clicked.connect(self.restart_selected_service)
         proc_actions.addWidget(self.btn_restart_service)
 
-        self.btn_kill_procs = QPushButton("💀 Matar Procesos Seleccionados (SIGTERM / kill -9)")
+        self.btn_kill_procs = QPushButton("Matar Procesos Seleccionados (SIGTERM / kill -9)")
         self.btn_kill_procs.setObjectName("DangerBtn")
         self.btn_kill_procs.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_kill = Path(__file__).resolve().parent.parent / "assets" / "icons" / "btn_kill.svg"
+        if icon_kill.exists():
+            self.btn_kill_procs.setIcon(QIcon(str(icon_kill)))
+            self.btn_kill_procs.setIconSize(QSize(15, 15))
         self.btn_kill_procs.clicked.connect(self.kill_selected_processes)
         proc_actions.addWidget(self.btn_kill_procs)
 
@@ -703,7 +697,8 @@ class TabOptimizer(QWidget):
             self.bar_swap.setStyleSheet(f"QProgressBar::chunk {{ background-color: {COLOR_WARNING}; }}")
 
     def run_all_optimizations(self):
-        tasks = ["drop_caches", "orphan_mcps", "port_9333", "trash_clean", "browser_mem"]
+        """Ejecuta optimizaciones de memoria y caché seguras y no destructivas."""
+        tasks = ["drop_caches", "browser_mem"]
         self.start_optimization_worker(tasks)
 
     def run_selected_tasks(self):

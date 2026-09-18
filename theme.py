@@ -109,10 +109,6 @@ PROVIDER_COLORS = {
     "moonshot": COLOR_PROV_KIMI,
     "airforce": "#14B8A6",
     "deepgram": "#10B981",
-    "venice": "#06B6D4",
-    "kktoken": "#8B5CF6",
-    "experientials_labs": "#EC4899",
-    "kiosapi": "#F59E0B",
     "custom": COLOR_PROV_CUSTOM
 }
 
@@ -206,26 +202,28 @@ QFrame#HeaderFrame {{
     padding: 10px 16px;
 }}
 
-/* Botones de Navegación Sidebar */
-QPushButton[class="NavBtn"], QPushButton.NavBtn {{
+/* Botones de Navegación Sidebar Estilo macOS */
+QPushButton[class="NavBtn"], QPushButton.NavBtn, QPushButton[active] {{
     background-color: transparent;
     color: {COLOR_TEXT_MUTED};
-    border: none;
+    border: 1px solid transparent;
     border-radius: 8px;
-    padding: 10px 14px;
+    padding: 6px 12px;
     font-weight: 600;
     font-size: 12px;
     text-align: left;
 }}
 
 QPushButton[class="NavBtn"]:hover, QPushButton.NavBtn:hover {{
-    background-color: #16263A;
-    color: {COLOR_PRIMARY_CYAN};
+    background-color: #16273F;
+    border: 1px solid #1E3A5F;
+    color: {COLOR_TEXT_MAIN};
 }}
 
-QPushButton[class="NavBtn"][active="true"], QPushButton.NavBtn[active="true"] {{
-    background-color: #172D44;
+QPushButton[class="NavBtn"][active="true"], QPushButton.NavBtn[active="true"], QPushButton[active="true"] {{
+    background-color: #152E4A;
     color: {COLOR_PRIMARY_CYAN};
+    border: 1px solid #1E3A5F;
     border-left: 4px solid {COLOR_PRIMARY_CYAN};
     font-weight: 700;
 }}
@@ -568,5 +566,50 @@ QRadioButton::indicator {{
 QRadioButton::indicator:checked {{
     background-color: {COLOR_PRIMARY_CYAN};
     border: 1px solid {COLOR_PRIMARY_CYAN};
+}}
+
+/* Diálogos y Modales de Confirmación (Alto Contraste Estilo macOS Sheet) */
+QMessageBox, QDialog {{
+    background-color: #0A1220;
+    color: {COLOR_TEXT_MAIN};
+    border: 1px solid #24446C;
+    border-radius: 12px;
+}}
+
+QMessageBox QLabel, QDialog QLabel {{
+    color: #F8FAFC;
+    font-size: 12px;
+    background: transparent;
+    border: none;
+    padding: 6px;
+}}
+
+QMessageBox QPushButton, QDialog QPushButton {{
+    background-color: #16263B;
+    color: #F8FAFC;
+    border: 1px solid #2D4C6B;
+    border-radius: 6px;
+    padding: 8px 20px;
+    min-width: 90px;
+    font-size: 12px;
+    font-weight: 700;
+}}
+
+QMessageBox QPushButton:hover, QDialog QPushButton:hover {{
+    background-color: #223D61;
+    border-color: {COLOR_PRIMARY_CYAN};
+    color: {COLOR_PRIMARY_CYAN};
+}}
+
+QMessageBox QPushButton:default, QDialog QPushButton:default {{
+    background-color: #0369A1;
+    border: 1px solid #38BDF8;
+    color: #FFFFFF;
+}}
+
+QMessageBox QPushButton:default:hover, QDialog QPushButton:default:hover {{
+    background-color: #0284C7;
+    border: 1px solid {COLOR_PRIMARY_CYAN};
+    color: #FFFFFF;
 }}
 """

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="gradSkills" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#AF52DE"/>
+      <stop offset="100%" stop-color="#DA8FFF"/>
+    </linearGradient>
+    <filter id="shadowSkills" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect x="1" y="1" width="30" height="30" rx="7.5" fill="url(#gradSkills)" filter="url(#shadowSkills)"/>
+  <rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1"/>
+  <!-- SF Symbol: Modular Skills Cube / Package -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M16 6.5 L24.5 11.5 L16 16.5 L7.5 11.5 Z" fill="#FFFFFF" fill-opacity="0.3"/>
+    <path d="M7.5 11.5 L7.5 20.5 L16 25.5 L16 16.5 Z"/>
+    <path d="M24.5 11.5 L24.5 20.5 L16 25.5 L16 16.5 Z" fill="#FFFFFF" fill-opacity="0.15"/>
+  </g>
+</svg>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="gradOpt" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#30D158"/>
+      <stop offset="100%" stop-color="#28CD41"/>
+    </linearGradient>
+    <filter id="shadowOpt" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Apple Style Squircle -->
+  <rect x="1" y="1" width="30" height="30" rx="7.5" fill="url(#gradOpt)" filter="url(#shadowOpt)"/>
+  <rect x="1.5" y="1.5" width="29" height="29" rx="7" fill="none" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1"/>
+  <!-- SF Symbol: Lightning Bolt & Energy -->
+  <path d="M17.5 6.5 L9.5 16.5 H15.5 L14.5 25.5 L22.5 15.5 H16.5 Z" 
+        fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.2" stroke-linejoin="round"/>
+</svg>

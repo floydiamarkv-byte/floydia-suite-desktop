@@ -102,39 +102,43 @@ class FloydIASuiteApp(QMainWindow):
         sidebar_lay.setContentsMargins(14, 16, 14, 16)
         sidebar_lay.setSpacing(8)
 
-        # Brand / Logo Header
+        # Brand / Logo Header — Isotipo grande, nítido y legible
         brand_container = QFrame()
         brand_container.setStyleSheet("background: transparent; border: none;")
-        brand_lay = QVBoxLayout(brand_container)
-        brand_lay.setContentsMargins(0, 0, 0, 0)
-        brand_lay.setSpacing(6)
+        brand_lay = QHBoxLayout(brand_container)
+        brand_lay.setContentsMargins(2, 4, 2, 8)
+        brand_lay.setSpacing(12)
 
-        logo_loaded = False
-        if SIDEBAR_LOGO and os.path.exists(SIDEBAR_LOGO):
-            try:
-                pix = QPixmap(SIDEBAR_LOGO)
-                if not pix.isNull():
-                    lbl_logo_img = QLabel()
-                    scaled_pix = pix.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation)
-                    if scaled_pix.width() > 210:
-                        scaled_pix = pix.scaledToWidth(200, Qt.TransformationMode.SmoothTransformation)
-                    lbl_logo_img.setPixmap(scaled_pix)
-                    lbl_logo_img.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                    brand_lay.addWidget(lbl_logo_img)
-                    logo_loaded = True
-            except Exception:
-                logo_loaded = False
+        # Cargar icono de FloydIA grande (52x52)
+        suite_icon_path = os.path.join(SUITE_DIR, "assets", "icon.png")
+        lbl_logo_img = QLabel()
+        if os.path.exists(suite_icon_path):
+            pix = QPixmap(suite_icon_path)
+            if not pix.isNull():
+                lbl_logo_img.setPixmap(pix.scaled(52, 52, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        elif SIDEBAR_LOGO and os.path.exists(SIDEBAR_LOGO):
+            pix = QPixmap(SIDEBAR_LOGO)
+            if not pix.isNull():
+                lbl_logo_img.setPixmap(pix.scaled(52, 52, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        lbl_logo_img.setFixedSize(54, 54)
+        lbl_logo_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_logo_img.setStyleSheet("background: transparent; border: none;")
+        brand_lay.addWidget(lbl_logo_img)
 
-        if not logo_loaded:
-            lbl_brand_name = QLabel("FLOYDIA SUITE")
-            lbl_brand_name.setFont(QFont("Inter", 14, QFont.Weight.Bold))
-            lbl_brand_name.setStyleSheet(f"color: {COLOR_PRIMARY_CYAN}; letter-spacing: 1px;")
-            brand_lay.addWidget(lbl_brand_name)
+        brand_text_box = QVBoxLayout()
+        brand_text_box.setSpacing(2)
+        lbl_brand_name = QLabel("FLOYDIA SUITE")
+        lbl_brand_name.setFont(QFont("Inter", 13, QFont.Weight.Bold))
+        lbl_brand_name.setStyleSheet(f"color: {COLOR_PRIMARY_CYAN}; letter-spacing: 1.2px; background: transparent; border: none;")
 
-        lbl_brand_sub = QLabel("SRE & AI COMMAND HUB 2.0")
-        lbl_brand_sub.setFont(QFont("Inter", 8, QFont.Weight.DemiBold))
-        lbl_brand_sub.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; letter-spacing: 0.5px;")
-        brand_lay.addWidget(lbl_brand_sub)
+        lbl_brand_sub = QLabel("SRE & AI HUB 2.0")
+        lbl_brand_sub.setFont(QFont("Inter", 8, QFont.Weight.Bold))
+        lbl_brand_sub.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; letter-spacing: 0.8px; background: transparent; border: none;")
+
+        brand_text_box.addWidget(lbl_brand_name)
+        brand_text_box.addWidget(lbl_brand_sub)
+        brand_lay.addLayout(brand_text_box)
+        brand_lay.addStretch()
         sidebar_lay.addWidget(brand_container)
 
         # Separador Neón
@@ -143,20 +147,22 @@ class FloydIASuiteApp(QMainWindow):
         sep.setStyleSheet(f"background-color: {COLOR_BORDER}; margin: 8px 0px;")
         sidebar_lay.addWidget(sep)
 
-        # Botones de Navegación
+        # Botones de Navegación con Iconos Vectoriales SVG
         nav_items = [
-            ("🔄", "Reboot Hub", "Control de Infraestructura"),
-            ("⚡", "SRE Optimizer", "Optimización & RAM"),
-            ("🧹", "SRE Cleaner", "BleachBit & Multi-Perfil"),
-            ("🧩", "MCP & Skills", "Studio de Habilidades"),
-            ("🛰️", "AI Radar", "Observatorio de Modelos"),
-            ("🔑", "API Manager", "Gestión de Endpoints"),
-            ("📡", "SRE Diag", "Diagnóstico de Red")
+            ("nav_reboot.svg", "Reboot Hub", "Control de Infraestructura"),
+            ("nav_optimizer.svg", "SRE Optimizer", "Optimización & RAM"),
+            ("nav_cleaner.svg", "SRE Cleaner", "BleachBit & Multi-Perfil"),
+            ("nav_skills.svg", "MCP & Skills", "Studio de Habilidades"),
+            ("nav_radar.svg", "AI Radar", "Observatorio de Modelos"),
+            ("nav_api.svg", "API Manager", "Gestión de Endpoints"),
+            ("nav_diag.svg", "SRE Diag", "Diagnóstico de Red")
         ]
 
-        for i, (icon, title, desc) in enumerate(nav_items):
+        nav_dir = os.path.join(SUITE_DIR, "assets", "nav")
+        for i, (icon_file, title, desc) in enumerate(nav_items):
             btn = QPushButton()
             btn.setObjectName(f"NavBtn_{i}")
+            btn.setProperty("class", "NavBtn")
             btn.setCheckable(False)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setFixedHeight(54)
@@ -164,20 +170,28 @@ class FloydIASuiteApp(QMainWindow):
 
             btn_lay = QHBoxLayout(btn)
             btn_lay.setContentsMargins(12, 6, 12, 6)
-            btn_lay.setSpacing(10)
+            btn_lay.setSpacing(12)
 
-            lbl_icon = QLabel(icon)
-            lbl_icon.setFont(QFont("Inter", 16))
+            icon_full_path = os.path.join(nav_dir, icon_file)
+            lbl_icon = QLabel()
+            if os.path.exists(icon_full_path):
+                pix = QPixmap(icon_full_path)
+                if not pix.isNull():
+                    lbl_icon.setPixmap(pix.scaled(28, 28, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            lbl_icon.setFixedSize(30, 30)
+            lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl_icon.setStyleSheet("background: transparent; border: none;")
             btn_lay.addWidget(lbl_icon)
 
             text_box = QVBoxLayout()
             text_box.setSpacing(2)
             lbl_title = QLabel(title)
+            lbl_title.setObjectName(f"NavTitle_{i}")
             lbl_title.setFont(QFont("Inter", 10, QFont.Weight.Bold))
-            lbl_title.setStyleSheet("background: transparent; border: none;")
+            lbl_title.setStyleSheet("background: transparent; border: none; color: #F5F8F7;")
 
             lbl_desc = QLabel(desc)
+            lbl_desc.setObjectName(f"NavDesc_{i}")
             lbl_desc.setFont(QFont("Inter", 7))
             lbl_desc.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; background: transparent; border: none;")
 
@@ -232,10 +246,14 @@ class FloydIASuiteApp(QMainWindow):
         header_lay.addStretch()
 
         # Botón Acción Rápida Global
-        btn_fast_clean = QPushButton("⚡ Limpieza SRE Rápida")
+        btn_fast_clean = QPushButton("Limpieza SRE Rápida")
         btn_fast_clean.setObjectName("BtnFastClean")
         btn_fast_clean.setFont(QFont("Inter", 9, QFont.Weight.Bold))
         btn_fast_clean.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_rocket = os.path.join(SUITE_DIR, "assets", "icons", "btn_rocket.svg")
+        if os.path.exists(icon_rocket):
+            btn_fast_clean.setIcon(QIcon(icon_rocket))
+            btn_fast_clean.setIconSize(QSize(14, 14))
         btn_fast_clean.clicked.connect(self.quick_clean_action)
         header_lay.addWidget(btn_fast_clean)
 
@@ -280,13 +298,13 @@ class FloydIASuiteApp(QMainWindow):
 
         self.stack.setCurrentIndex(index)
         titles = [
-            "🔄 Control de Infraestructura & Reboot Hub",
-            "⚡ Optimizador SRE & Liberación de Memoria",
-            "🧹 SRE BleachBit Cleaner — Limpieza Segura Multi-Perfil",
-            "🧩 Gestor de MCPs & Skills Studio",
-            "🛰️ AI Radar & Observatorio de Modelos",
-            "🔑 Gestor de APIs, Endpoints & Propagación",
-            "📡 Diagnóstico de Red & SRE Logs"
+            "Control de Infraestructura & Reboot Hub",
+            "Optimizador SRE & Liberación de Memoria",
+            "SRE BleachBit Cleaner — Limpieza Segura Multi-Perfil",
+            "Gestor de MCPs & Skills Studio",
+            "AI Radar & Observatorio de Modelos",
+            "Gestor de APIs, Endpoints & Propagación",
+            "Diagnóstico de Red & SRE Logs"
         ]
         if index < len(titles):
             self.lbl_current_title.setText(titles[index])

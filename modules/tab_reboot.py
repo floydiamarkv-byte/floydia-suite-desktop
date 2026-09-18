@@ -11,10 +11,11 @@ import time
 import subprocess
 import fcntl
 import threading
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer, QThread, QObject
-from PyQt6.QtGui import QFont, QColor, QCursor
+from PyQt6.QtGui import QFont, QColor, QCursor, QPixmap, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QScrollArea, QFrame, QMessageBox, QProgressBar,
@@ -163,7 +164,7 @@ DEFAULT_NODES: List[Dict[str, Any]] = [
         "name": "Laptop HP15 (Local)",
         "subtitle": "Estación Principal Debian (Host Ejecutor)",
         "icon": "⚡",
-        "enabled": True,
+        "enabled": False,
         "order": 6,
         "type": "localhost",
         "ip_env_key": "HP15_IP",
@@ -361,7 +362,10 @@ class RebootSequenceWorker(QThread):
             def log_cb(msg: str, lvl: str):
                 self.signals.log.emit(msg, lvl)
 
-            ok, detail = engine.execute_reboot_node(node, self.env_map, dry_run=self.dry_run, log_cb=log_cb)
+            try:
+                ok, detail = engine.execute_reboot_node(node, self.env_map, dry_run=self.dry_run, log_cb=log_cb)
+            except Exception as e_node:
+                ok, detail = False, f"Excepción durante reinicio: {e_node}"
 
             if ok:
                 self.signals.node_status.emit(n_id, "SUCCESS", "Reiniciado OK")
@@ -542,7 +546,7 @@ class TabReboot(QWidget):
         # 1. ENCABEZADO Y ACCIONES RÁPIDAS DE SELECCIÓN
         top_bar = QHBoxLayout()
         title_box = QVBoxLayout()
-        title = QLabel("🔄 Orquestador de Reinicio de Infraestructura & Nodos")
+        title = QLabel("Orquestador de Reinicio de Infraestructura & Nodos")
         title.setFont(QFont("Inter", 15, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {COLOR_PRIMARY_CYAN};")
         
@@ -554,9 +558,13 @@ class TabReboot(QWidget):
         top_bar.addLayout(title_box)
         top_bar.addStretch()
 
-        self.btn_health = QPushButton("🔍 Comprobar Conectividad")
+        self.btn_health = QPushButton("Comprobar Conectividad")
         self.btn_health.setObjectName("SecondaryBtn")
         self.btn_health.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_refresh = Path(__file__).resolve().parent.parent / "assets" / "icons" / "btn_refresh.svg"
+        if icon_refresh.exists():
+            self.btn_health.setIcon(QIcon(str(icon_refresh)))
+            self.btn_health.setIconSize(QSize(15, 15))
         self.btn_health.clicked.connect(self.run_health_check)
         top_bar.addWidget(self.btn_health)
 
@@ -631,15 +639,23 @@ class TabReboot(QWidget):
         btn_row.addWidget(self.chk_dry_run)
         btn_row.addStretch()
 
-        self.btn_cancel = QPushButton("🛑 Cancelar Secuencia")
+        self.btn_cancel = QPushButton("Cancelar Secuencia")
         self.btn_cancel.setObjectName("DangerBtn")
         self.btn_cancel.setEnabled(False)
+        icon_kill = Path(__file__).resolve().parent.parent / "assets" / "icons" / "btn_kill.svg"
+        if icon_kill.exists():
+            self.btn_cancel.setIcon(QIcon(str(icon_kill)))
+            self.btn_cancel.setIconSize(QSize(15, 15))
         self.btn_cancel.clicked.connect(self.cancel_execution)
         btn_row.addWidget(self.btn_cancel)
 
-        self.btn_start = QPushButton("🚀 Ejecutar Reinicio Secuencial de Nodos Seleccionados")
+        self.btn_start = QPushButton("Ejecutar Reinicio Secuencial de Nodos Seleccionados")
         self.btn_start.setObjectName("PrimaryBtn")
         self.btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
+        icon_rocket = Path(__file__).resolve().parent.parent / "assets" / "icons" / "btn_rocket.svg"
+        if icon_rocket.exists():
+            self.btn_start.setIcon(QIcon(str(icon_rocket)))
+            self.btn_start.setIconSize(QSize(16, 16))
         self.btn_start.clicked.connect(self.confirm_and_start_reboot)
         btn_row.addWidget(self.btn_start)
 
@@ -647,7 +663,7 @@ class TabReboot(QWidget):
         layout.addWidget(exec_group)
 
         # 5. CONSOLA DE LOGS
-        log_title = QLabel("📋 Bitácora de Eventos & Salida en Tiempo Real")
+        log_title = QLabel("Bitácora de Eventos & Salida en Tiempo Real")
         log_title.setFont(QFont("Inter", 10, QFont.Weight.Bold))
         layout.addWidget(log_title)
 
@@ -744,31 +760,95 @@ class TabReboot(QWidget):
         self.timer.start(25000)
 
     def confirm_and_start_reboot(self):
-        active_nodes = [n for n in self.nodes if n.get("enabled", True)]
-        if not active_nodes:
-            QMessageBox.warning(self, "Sin Nodos", "No has seleccionado ningún nodo para reiniciar.")
-            return
+        try:
+            active_nodes = [n for n in self.nodes if n.get("enabled", True)]
+            if not active_nodes:
+                box = QMessageBox(self)
+                box.setWindowTitle("FloydIA Suite — Sin Nodos")
+                box.setIcon(QMessageBox.Icon.Warning)
+                box.setText("<b style='color: #F87171; font-size: 13px;'>No hay nodos seleccionados</b>")
+                box.setInformativeText("<span style='color: #E2E8F0;'>Debes marcar la casilla de al menos un nodo en la lista superior para ejecutar el reinicio.</span>")
+                box.addButton("Entendido", QMessageBox.ButtonRole.AcceptRole)
+                box.exec()
+                return
 
-        node_names = "\n".join([f"• {n['name']} ({n.get('default_ip')})" for n in active_nodes])
-        is_dry = self.chk_dry_run.isChecked()
-        mode_text = "SIMULACIÓN (Dry-Run)" if is_dry else "PRODUCCIÓN (Reinicio Real)"
+            is_dry = self.chk_dry_run.isChecked()
+            has_hp15 = any("hp15" in str(n.get("id", "")).lower() or "hp15" in str(n.get("name", "")).lower() for n in active_nodes)
 
-        msg = (
-            f"¿Estás seguro de ejecutar el reinicio secuencial en modo {mode_text}?\n\n"
-            f"Nodos seleccionados ({len(active_nodes)}):\n{node_names}\n\n"
-            f"⚠️ Atención: Si se incluye HP15 Local, el sistema se reiniciará tras 10s de cuenta regresiva."
-        )
+            nodes_list_html = "".join([
+                f"<li style='color: #F1F5F9; margin-bottom: 3px;'><b>{n.get('name')}</b> <span style='color: #38BDF8;'>({n.get('default_ip')})</span></li>"
+                for n in active_nodes
+            ])
 
-        reply = QMessageBox.question(
-            self,
-            "Confirmación de Reinicio",
-            msg,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
+            if is_dry:
+                mode_badge = (
+                    "<div style='background-color: #064E3B; border: 1px solid #10B981; "
+                    "color: #34D399; padding: 6px 10px; border-radius: 6px; font-weight: bold; margin-bottom: 8px;'>"
+                    "● MODO SEGURO: SIMULACIÓN (Dry-Run — No ejecutará reinicios reales)"
+                    "</div>"
+                )
+                action_btn_text = "▶ Ejecutar Simulación"
+            else:
+                mode_badge = (
+                    "<div style='background-color: #7F1D1D; border: 1px solid #EF4444; "
+                    "color: #FCA5A5; padding: 6px 10px; border-radius: 6px; font-weight: bold; margin-bottom: 8px;'>"
+                    "● MODO PRODUCCIÓN: REINICIO FÍSICO Y REAL DE SERVIDORES"
+                    "</div>"
+                )
+                action_btn_text = "Confirmar Reinicio en Producción"
 
-        if reply == QMessageBox.StandardButton.Yes:
-            self.start_reboot_sequence(active_nodes, is_dry)
+            hp15_warning = ""
+            if has_hp15:
+                hp15_warning = (
+                    "<div style='background-color: #3B1212; border: 1px solid #F87171; color: #FECACA; "
+                    "padding: 8px 10px; border-radius: 6px; margin-top: 10px; font-size: 11px;'>"
+                    "<b>[ALERTA CRÍTICA]:</b> El host HP15 Local está incluido. "
+                    "Al finalizar la secuencia se disparará el reinicio físico del host tras 10s de cuenta regresiva."
+                    "</div>"
+                )
+
+            info_html = (
+                f"{mode_badge}"
+                f"<div style='background-color: #0E1726; border: 1px solid #1E2E44; border-radius: 6px; padding: 8px 12px; margin-top: 6px;'>"
+                f"<span style='color: #94A3B8; font-weight: bold; font-size: 11px;'>Nodos Seleccionados ({len(active_nodes)}):</span>"
+                f"<ul style='margin: 4px 0 2px 18px; padding: 0;'>"
+                f"{nodes_list_html}"
+                f"</ul>"
+                f"</div>"
+                f"{hp15_warning}"
+            )
+
+            box = QMessageBox(self)
+            box.setWindowTitle("Confirmación de Secuencia de Reinicio — FloydIA Suite")
+            
+            # Cargar icono de advertencia nítido desde assets
+            icon_asset = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+            if icon_asset.exists():
+                pix = QPixmap(str(icon_asset)).scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                box.setIconPixmap(pix)
+            else:
+                box.setIcon(QMessageBox.Icon.Warning if not is_dry else QMessageBox.Icon.Information)
+
+            box.setTextFormat(Qt.TextFormat.RichText)
+            box.setText("<h3 style='color: #00F5D4; margin: 0 0 6px 0;'>¿Confirmar ejecución de la secuencia?</h3>")
+            box.setInformativeText(info_html)
+
+            btn_confirm = box.addButton(action_btn_text, QMessageBox.ButtonRole.AcceptRole)
+            btn_cancel = box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(btn_cancel)
+
+            if not is_dry:
+                btn_confirm.setStyleSheet("background-color: #DC2626; color: #FFFFFF; font-weight: bold; border: 1px solid #EF4444; border-radius: 6px; padding: 8px 16px;")
+            else:
+                btn_confirm.setStyleSheet("background-color: #059669; color: #FFFFFF; font-weight: bold; border: 1px solid #10B981; border-radius: 6px; padding: 8px 16px;")
+
+            box.exec()
+
+            if box.clickedButton() == btn_confirm:
+                self.start_reboot_sequence(active_nodes, is_dry)
+        except Exception as exc:
+            self.log_message(f"Error al iniciar diálogo de confirmación: {exc}", "ERROR")
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al preparar el reinicio:\n{exc}")
 
     def start_reboot_sequence(self, active_nodes: List[Dict[str, Any]], dry_run: bool):
         if self.worker and self.worker.isRunning():

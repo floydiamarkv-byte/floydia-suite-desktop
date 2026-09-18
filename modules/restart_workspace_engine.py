@@ -296,15 +296,16 @@ def execute_reboot_node(
     # 5. Localhost HP15 (Debian 13 SysVinit / Sudo NOPASSWD)
     elif n_type == "localhost":
         log("🚨 PREPARANDO REINICIO LOCAL DEL HOST HP15...", "WARN")
-        log("Ejecutando 'sudo -n reboot' en HP15 (Debian SysVinit)...", "INFO")
+        log("Ejecutando reinicio determinista de HP15 (sin bloqueos de red ni pantallas colgadas)...", "INFO")
         try:
-            subprocess.Popen(["sudo", "-n", "reboot"], env=clean_env)
-            return True, "Reinicio local de HP15 en ejecución"
+            cmd = ["sudo", "/usr/local/bin/hp15-safe-reboot.sh"]
+            subprocess.Popen(cmd, env=clean_env)
+            return True, "Reinicio limpio de HP15 emitido"
         except Exception as e:
-            log(f"Aviso con sudo reboot: {e}. Intentando loginctl...", "WARN")
+            log(f"Aviso con hp15-safe-reboot: {e}. Intentando reboot -f...", "WARN")
             try:
-                subprocess.Popen(["loginctl", "reboot"], env=clean_env)
-                return True, "Reinicio local de HP15 emitido vía loginctl"
+                subprocess.Popen(["sudo", "-n", "reboot", "-f"], env=clean_env)
+                return True, "Reinicio forzado de HP15 emitido"
             except Exception as e2:
                 log(f"Error al reiniciar localmente: {e2}", "ERROR")
                 return False, str(e2)
