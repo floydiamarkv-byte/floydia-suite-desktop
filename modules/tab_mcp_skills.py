@@ -36,26 +36,43 @@ SCRIPTS_DIR = os.path.join(WORKSPACE_ROOT, "SCRIPTS")
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
+SKILLS_DIR = os.path.join(WORKSPACE_ROOT, ".agents", "skills")
+SKILLS_ARCHIVE_DIR = os.path.join(SKILLS_DIR, "_archive")
+GLOBAL_SKILLS_DIR = os.path.expanduser("~/.gemini/config/skills")
+GLOBAL_SKILLS_ARCHIVE_DIR = os.path.join(GLOBAL_SKILLS_DIR, "_archive")
+
+def normalize_skill_name(name: str) -> str:
+    n = name.lower().strip()
+    if n.startswith("f-"):
+        n = n[2:]
+    return n.replace("_", "-")
+
+def match_skill_name(target: str, candidate: str) -> bool:
+    if target == candidate:
+        return True
+    return normalize_skill_name(target) == normalize_skill_name(candidate)
+
 class DefaultSkillsHelper:
     DEPRECATED_SERVERS = set()
     PROTECTED_USER_SKILLS = {
-        "f-clientes", "f-descripcion", "f-handon-handoff", "f-harness-workflow",
-        "f-mejora-prompt", "f-opti-floydia", "f-opti-notebooklm", "f-update-floydia"
+        "f-orquestador-floydia", "f-harness", "f-harness-workflow", "f-investiga",
+        "f-master-update", "f-mejora-prompt", "f-api-scanner", "f-handon-handoff",
+        "f-clientes", "f-descripcion"
     }
     SKILL_PRESETS = {
-        "diario": {
-            "name": "⚡ Diario Ultra-Ligero",
-            "badge": "4 Skills",
-            "description": "Continuidad, Arnés, Optimización y SRE Governor f-*.",
-            "skills": ["f-handon-handoff", "f-mejora-prompt", "f-harness-workflow", "f-opti-floydia"]
+        "core-daily": {
+            "name": "⚡ Diario FloydIA SSOT",
+            "badge": "6 Skills",
+            "description": "Skills Indispensables Always-On: Orquestador, Harness, Workflow, Investiga, Master-Update y Mejora-Prompt",
+            "skills": ["f-orquestador-floydia", "f-harness", "f-harness-workflow", "f-investiga", "f-master-update", "f-mejora-prompt"]
         },
-        "full": {
-            "name": "🚀 Full Canónica v27",
+        "full-suite": {
+            "name": "🚀 Full Canónica FloydIA",
             "badge": "8 Skills",
-            "description": "Activa las 8 habilidades especializadas canónicas f-*.",
+            "description": "Las 8 habilidades especializadas canónicas f-* de FloydIA activas simultáneamente",
             "skills": [
-                "f-clientes", "f-descripcion", "f-handon-handoff", "f-harness-workflow",
-                "f-mejora-prompt", "f-opti-floydia", "f-opti-notebooklm", "f-update-floydia"
+                "f-orquestador-floydia", "f-harness", "f-harness-workflow", "f-investiga",
+                "f-master-update", "f-mejora-prompt", "f-api-scanner", "f-handon-handoff"
             ]
         }
     }
@@ -108,14 +125,9 @@ MCP_BACKUP_PATH = os.path.expanduser("~/.gemini/config/mcp_config.json.bak")
 OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.config/opencode/opencode.jsonc"))
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 DSH_CONFIG = os.path.expanduser("~/.dsh/profiles/web/cordis.patch.yml")
-SKILLS_DIR = os.path.join(WORKSPACE_ROOT, ".agents", "skills")
-SKILLS_ARCHIVE_DIR = os.path.join(SKILLS_DIR, "_archive")
 
 
-def atomic_json_write(path: str, data: Any) -> None:
-    """Escritura atómica — delega en el SSOT modules/state_store.atomic_write_json."""
-    from modules.state_store import atomic_write_json as _ss_write
-    _ss_write(path, data)
+from modules.state_store import atomic_write_json as atomic_json_write
 
 from theme import (
     COLOR_BG_DARK, COLOR_BG_CARD, COLOR_BORDER, COLOR_PRIMARY_CYAN,
@@ -190,8 +202,17 @@ def _merge_hermes_mcp_content(
     if head.endswith(_HERMES_MARKER):
         head = head[: -len(_HERMES_MARKER)].rstrip()
 
+    # Detectar y separar la sección tail (claves a nivel raíz posteriores a mcp_servers)
+    tail_match = re.search(r'(?m)^[a-zA-Z0-9_\-]+:\s*(#.*)?$', block)
+    if tail_match:
+        mcp_block = block[:tail_match.start()]
+        tail = block[tail_match.start():]
+    else:
+        mcp_block = block
+        tail = ""
+
     preserved: List[List[str]] = []
-    for name, entry_lines in _parse_hermes_mcp_entries(block):
+    for name, entry_lines in _parse_hermes_mcp_entries(mcp_block):
         if name in managed_now or name in prev_managed:
             continue  # gestionadas por la suite: se re-renderizan o se eliminan
         preserved.append(entry_lines)  # entrada manual del usuario: intacta
@@ -203,32 +224,153 @@ def _merge_hermes_mcp_content(
         lines.extend(generated_entries[name])
 
     res_entry["managed_names"] = sorted(managed_now)
-    return (head + "\n" if head else "") + "\n".join(lines) + "\n"
+    mcp_rendered = "\n".join(lines)
+    result = (head + "\n\n" if head else "") + mcp_rendered + "\n"
+    if tail:
+        result = result + ("\n" if not result.endswith("\n\n") else "") + tail.lstrip("\r\n")
+    return result
+
+
+DEFAULT_MCP_METADATA: Dict[str, Dict[str, str]] = {
+    "novamira-mcp": {
+        "title": "Novamira WordPress (Dinámico / Multi-Tenant)",
+        "badge": "🌐 WP: DINÁMICO (S17_ACTIVE)",
+        "badge_color": "#00BCD4",
+        "owner": "Multi-Tenant (S17_ACTIVE_CLIENT / Fallback: WattSaver)",
+        "desc": "Conexión remota a WordPress (REST API & Abilities). Conmuta automáticamente al cliente activo en sesión.",
+    },
+    "novamira-wattsaver": {
+        "title": "Novamira WordPress (WattSaver)",
+        "badge": "⚡ CLIENTE: WATTSAVER",
+        "badge_color": "#4CAF50",
+        "owner": "Cliente WattSaver (wattsaver.com)",
+        "desc": "Conexión remota dedicada a la instancia WordPress/Elementor de WattSaver.",
+    },
+    "novamira-evergreen": {
+        "title": "Novamira WordPress (Evergreen DR)",
+        "badge": "🌲 CLIENTE: EVERGREEN",
+        "badge_color": "#2E7D32",
+        "owner": "Cliente Evergreen DR (evergreendr.com)",
+        "desc": "Conexión remota dedicada a la instancia WordPress/Elementor de Evergreen DR.",
+    },
+    "novamira-floydia": {
+        "title": "Novamira WordPress (Floydia Personal)",
+        "badge": "🟣 MARCA: FLOYDIA",
+        "badge_color": "#9C27B0",
+        "owner": "Marca Personal Floydia (floydia.com)",
+        "desc": "Conexión remota dedicada a la instancia WordPress de Floydia.",
+    },
+    "novamira-coquita": {
+        "title": "Novamira WordPress (Coquita Crochet)",
+        "badge": "🧶 CLIENTE: COQUITA",
+        "badge_color": "#E91E63",
+        "owner": "Cliente Coquita Crochet (coquita.site)",
+        "desc": "Conexión remota dedicada a la tienda WordPress/WooCommerce de Coquita Crochet.",
+    },
+    "novamira-kuamikiachi": {
+        "title": "Novamira WordPress (Kuamikiachi)",
+        "badge": "🌾 CLIENTE: KUAMIKIACHI",
+        "badge_color": "#FF9800",
+        "owner": "Cliente Kuamikiachi (kuamikiachi.com)",
+        "desc": "Conexión remota dedicada a la instancia WordPress de Kuamikiachi.",
+    },
+    "obsidian-mcp": {
+        "title": "Obsidian Memory Bank (CT106 SSOT)",
+        "badge": "🧠 MEMORIA: OBSIDIAN",
+        "badge_color": "#7C4DFF",
+        "owner": "Sistema SSOT (CT106 Syncthing)",
+        "desc": "Bóveda central de memoria persistente, journals y lecciones aprendidas.",
+    },
+    "notebooklm-mcp": {
+        "title": "Google NotebookLM (Deep Research)",
+        "badge": "🔬 RESEARCH: NOTEBOOKLM",
+        "badge_color": "#4285F4",
+        "owner": "Google NotebookLM (11 Cuadernos Temáticos)",
+        "desc": "Base de verdad externa e investigación profunda multi-fuente.",
+    },
+    "google-search-console": {
+        "title": "Google Search Console (GSC)",
+        "badge": "📈 SEO: SEARCH CONSOLE",
+        "badge_color": "#EA4335",
+        "owner": "Google Search Console (Dominios Verificados)",
+        "desc": "Auditoría de indexación, palabras clave, sitemaps y quick wins SEO.",
+    },
+    "google-analytics": {
+        "title": "Google Analytics 4 (GA4)",
+        "badge": "📊 DATOS: GA4 ANALYTICS",
+        "badge_color": "#FBBC05",
+        "owner": "Google Analytics (Propiedades GA4)",
+        "desc": "Telemetría de tráfico web, embudos de conversión y eventos en tiempo real.",
+    },
+    "proxmox-mcp": {
+        "title": "Proxmox VE Homelab (CT114 / CT106)",
+        "badge": "📡 INFRA: PROXMOX VE",
+        "badge_color": "#FF5722",
+        "owner": "Homelab Proxmox (CT106, CT114, Nodos VE)",
+        "desc": "Monitoreo y administración de nodos, contenedores LXC y VMs en red local.",
+    },
+    "stitch": {
+        "title": "Google Stitch UI Studio",
+        "badge": "🎨 DISEÑO: STITCH UI",
+        "badge_color": "#00ACC1",
+        "owner": "Google Stitch (Generación UI Frontend)",
+        "desc": "Generación, renderizado y sincronización de componentes e interfaces web.",
+    },
+    "inkscape_mcp": {
+        "title": "Inkscape Vector Suite CLI",
+        "badge": "📐 VECTOR: INKSCAPE",
+        "badge_color": "#78909C",
+        "owner": "Diseño Vectorial Local",
+        "desc": "Manipulación algorítmica de gráficos vectoriales SVG, logos e iconografía.",
+    },
+    "colab": {
+        "title": "Google Colab Pro GPU (Cargas Pesadas)",
+        "badge": "⚡ GPU: COLAB PRO",
+        "badge_color": "#F4511E",
+        "owner": "Google Colab Pro (eliutec.aux.ia1@gmail.com)",
+        "desc": "Procesamiento GPU intensivo: BiRefNet, IC-Light, embeddings y deep learning.",
+    },
+    "crawl4ai": {
+        "title": "Crawl4AI Web Scraper (Playwright)",
+        "badge": "🕷️ SCRAPING: CRAWL4AI",
+        "badge_color": "#26A69A",
+        "owner": "CT114 Playwright Runner",
+        "desc": "Extracción y scraping estructurado con headless browser en CT114.",
+    },
+    "graphify": {
+        "title": "Graphify AST Knowledge Graph",
+        "badge": "🕸️ CÓDIGO: GRAPHIFY AST",
+        "badge_color": "#3F51B5",
+        "owner": "Workspace AST SQLite",
+        "desc": "Grafo relacional de dependencias de código, AST y funciones del workspace.",
+    },
+}
+
 
 CANONICAL_PROFILES = {
     "web-deploy": {
         "name": "🌐 Web Modo S & Deploy",
         "badge": "4 MCPs",
-        "desc": "Modo S Estático (Vite/Firebase) & Novamira + Stitch UI + Obsidian Memory Bank + Playwright CT114.",
-        "mcps": ["novamira-mcp", "stitch", "obsidian-mcp", "playwright-runner"]
+        "desc": "Modo S Estático (Vite/Firebase) & Novamira + Stitch UI + Obsidian Memory Bank + Crawl4AI CT114.",
+        "mcps": ["novamira-mcp", "stitch", "obsidian-mcp", "crawl4ai"]
     },
     "visual-design": {
         "name": "🎨 Diseño Visual & Retoque",
-        "badge": "4 MCPs",
-        "desc": "Google Colab GPU (BiRefNet/IC-Light) + Inkscape Vector + Stitch UI + Obsidian Memory Bank.",
-        "mcps": ["colab", "inkscape_mcp", "stitch", "obsidian-mcp"]
+        "badge": "3 MCPs",
+        "desc": "Google Colab GPU (BiRefNet/IC-Light) + Stitch UI + Obsidian Memory Bank.",
+        "mcps": ["colab", "stitch", "obsidian-mcp"]
     },
     "research": {
         "name": "🔬 AI Deep Research (MIT)",
         "badge": "2 MCPs",
-        "desc": "NotebookLM Pipeline (50-200 fuentes) + Obsidian Memory Bank.",
+        "desc": "NotebookLM Pipeline (11 cuadernos temáticos) + Obsidian Memory Bank.",
         "mcps": ["notebooklm-mcp", "obsidian-mcp"]
     },
     "seo-audit": {
         "name": "📈 SEO & Growth Analytics",
         "badge": "3 MCPs",
-        "desc": "Google Analytics 4 + Google Search Console + Playwright Runner.",
-        "mcps": ["google-analytics", "google-search-console", "playwright-runner"]
+        "desc": "Google Analytics 4 + Google Search Console + Crawl4AI.",
+        "mcps": ["google-analytics", "google-search-console", "crawl4ai"]
     },
     "infra": {
         "name": "📡 Infraestructura & Proxmox",
@@ -239,8 +381,8 @@ CANONICAL_PROFILES = {
     "default": {
         "name": "⚡ Diario Ultra-Ligero (SSOT)",
         "badge": "2 MCPs",
-        "desc": "Perfil diario: Memory Bank (CT106) y validación Playwright (<1s carga).",
-        "mcps": ["obsidian-mcp", "playwright-runner"]
+        "desc": "Perfil diario: Memory Bank (CT106) y NotebookLM Deep Research.",
+        "mcps": ["obsidian-mcp", "notebooklm-mcp"]
     }
 }
 
@@ -282,6 +424,14 @@ class SkillCardWidget(QFrame):
             badge_prot = QLabel("💎 CORE")
             badge_prot.setStyleSheet("background-color: #3B0764; color: #D8B4FE; font-size: 9px; font-weight: bold; border-radius: 3px; padding: 1px 5px;")
             h_row.addWidget(badge_prot)
+        elif self.skill_name.startswith("wp-") or self.skill_name in ["blueprint", "wordpress-router", "wpds"]:
+            badge_wp = QLabel("🌐 WP")
+            badge_wp.setStyleSheet("background-color: #064E3B; color: #6EE7B7; font-size: 9px; font-weight: bold; border-radius: 3px; padding: 1px 5px;")
+            h_row.addWidget(badge_wp)
+        elif self.skill_name in ["notebook", "last30days"]:
+            badge_res = QLabel("🔬 RESEARCH")
+            badge_res.setStyleSheet("background-color: #1E3A8A; color: #93C5FD; font-size: 9px; font-weight: bold; border-radius: 3px; padding: 1px 5px;")
+            h_row.addWidget(badge_res)
 
         self.lbl_status = QLabel()
         self.update_status_label()
@@ -819,13 +969,31 @@ class TabMcpSkills(QWidget):
             return
 
         target_mcps = set(profile["mcps"])
+        alias_map = {
+            "playwright-runner": "crawl4ai",
+            "playwright": "crawl4ai",
+            "inkscape_mcp": "inkscape",
+        }
+        resolved_targets = set()
+        for t in target_mcps:
+            resolved_targets.add(t)
+            if t in alias_map:
+                resolved_targets.add(alias_map[t])
+
+        active_cnt = 0
         for name, cb in self.server_checkboxes.items():
-            cb.setChecked(name in target_mcps)
+            is_active = (name in resolved_targets) or (name.startswith("novamira-") and "novamira-mcp" in target_mcps and name in ["novamira-mcp", "novamira-wattsaver"])
+            cb.setChecked(is_active)
+            if is_active:
+                active_cnt += 1
+
+        self.update_mcp_budget_ui()
 
         QMessageBox.information(
             self,
             "Perfil Seleccionado",
-            f"✅ Perfil '{profile['name']}' cargado en los switches.\nPresiona 'Guardar y Aplicar' para persistir en mcp_config.json."
+            f"✅ Perfil '{profile['name']}' cargado en los switches ({active_cnt} servidores marcados).\n\n"
+            f"Presiona 'Guardar y Aplicar Configuración' para persistir en mcp_config.json y propagar."
         )
 
     def _get_active_mcp_specs(self) -> List[Tuple[str, Dict[str, Any]]]:
@@ -835,9 +1003,21 @@ class TabMcpSkills(QWidget):
         for name, srv in sorted(mcp_servers.items()):
             if name in getattr(mcp_profile_selector, "DEPRECATED_SERVERS", set()) or name.startswith("#"):
                 continue
+            if srv.get("_disabled", False):
+                continue
             cb = self.server_checkboxes.get(name)
             is_enabled = cb.isChecked() if cb is not None else not srv.get("disabled", False)
             if is_enabled:
+                # Comprobación de integridad: si refiere a archivos wheel/script locales que no existen, omitir
+                broken = False
+                for a in srv.get("args", []):
+                    if isinstance(a, str):
+                        clean_a = a.replace("file://", "")
+                        if clean_a.startswith("/") and not os.path.exists(clean_a) and (clean_a.endswith((".whl", ".py", ".js", ".sh", ".mjs")) or "/dist/" in clean_a):
+                            broken = True
+                            break
+                if broken:
+                    continue
                 active.append((name, srv))
         return active
 
@@ -1017,19 +1197,20 @@ class TabMcpSkills(QWidget):
             else:
                 parts.append("# Sin MCPs activos\n")
 
-            parts.append("""- id: llm-deepseek
+            parts.append(f"""- id: llm-deepseek
   disabled: true
 
 - id: sandbox-policy
   config:
     mode: danger-full-access
-    workspaceRoot: """ + WORKSPACE_ROOT + """
+    workspaceRoot: {WORKSPACE_ROOT}
 
 - id: approval
   config:
     policy: never
 """)
             content = "\n".join(parts)
+            _backup_config_file(dsh_patch_path)
             with open(dsh_patch_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
@@ -1173,17 +1354,30 @@ class TabMcpSkills(QWidget):
         self.render_skills_cards()
 
     def apply_skill_preset_ui(self, preset_key: str):
-        preset = mcp_profile_selector.SKILL_PRESETS.get(preset_key)
+        preset = getattr(mcp_profile_selector, "SKILL_PRESETS", {}).get(preset_key)
         if not preset:
             return
-        target_skills = set(preset["skills"])
+        target_skills = list(preset["skills"])
+        match_fn = getattr(mcp_profile_selector, "match_skill_name", match_skill_name)
+        protected = getattr(mcp_profile_selector, "PROTECTED_USER_SKILLS", set())
+
+        matched_count = 0
         for s in self.skills_list:
-            s["active"] = (s["name"] in target_skills)
+            is_target = any(match_fn(t, s["name"]) for t in target_skills)
+            if is_target:
+                s["active"] = True
+                matched_count += 1
+            else:
+                if s.get("active") and s["name"] in protected and preset_key != "minimal":
+                    s["active"] = True
+                else:
+                    s["active"] = False
+
         self.render_skills_cards()
         QMessageBox.information(
             self,
             "Preset Seleccionado",
-            f"✅ Preset '{preset.get('name', preset_key)}' cargado ({len(target_skills)} skills marcadas).\n"
+            f"✅ Preset '{preset.get('name', preset_key)}' cargado ({matched_count} skills del preset marcadas).\n\n"
             f"Presiona 'APLICAR CAMBIOS DE SKILLS' para persistir en disco."
         )
 

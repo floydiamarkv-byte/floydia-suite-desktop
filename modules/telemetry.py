@@ -30,11 +30,20 @@ _ACTION_DEFAULT_PATH = os.path.join(
 )
 
 
-def _connect() -> sqlite3.Connection:
+from contextlib import contextmanager
+from modules.state_store import sanitize_sensitive_text
+
+
+@contextmanager
+def _connect():
     os.makedirs(os.path.dirname(TELEMETRY_DB) or ".", exist_ok=True)
-    conn = sqlite3.connect(TELEMETRY_DB)
+    conn = sqlite3.connect(TELEMETRY_DB, timeout=10.0)
     conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
@@ -77,6 +86,13 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_pr_ts ON probe_results(ts);
             """
         )
+        # B-14 (GLM / SRE): Purga automática de registros con antigüedad > 30 días
+        try:
+            cutoff = time.time() - (30 * 86400)
+            conn.execute("DELETE FROM probe_results WHERE ts < ?", (cutoff,))
+            conn.execute("DELETE FROM diag_results WHERE ts < ?", (cutoff,))
+        except sqlite3.Error:
+            pass
 
 
 def ingest_action_journal(log_path: str = None) -> Dict[str, int]:
@@ -107,10 +123,10 @@ def ingest_action_journal(log_path: str = None) -> Dict[str, int]:
                         ts,
                         str(e.get("module", "")),
                         str(e.get("action", "")),
-                        str(e.get("target", ""))[:400],
+                        sanitize_sensitive_text(str(e.get("target", "")))[:400],
                         str(e.get("result", "")),
                         int(e.get("duration_ms", 0) or 0),
-                        str(e.get("detail", ""))[:400],
+                        sanitize_sensitive_text(str(e.get("detail", "")))[:400],
                     ),
                 )
                 conn.execute("INSERT OR IGNORE INTO imported_action_keys(k) VALUES(?)", (key,))

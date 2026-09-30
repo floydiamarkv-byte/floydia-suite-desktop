@@ -143,8 +143,9 @@ class CancellableThread(QThread):
         return self._cancel_event.is_set() or self.isInterruptionRequested()
 
     def wait_or_cancel(self, seconds: float) -> bool:
-        """Espera sin bloquear indefinidamente el shutdown."""
-        return self._cancel_event.wait(max(0.0, seconds))
+        """Cancela cooperativamente y espera la finalización del hilo con timeout (B-09 GLM)."""
+        self.cancel()
+        return self.wait(int(max(0.0, seconds) * 1000))
 
 
 def is_worker_running(worker: Optional[QThread]) -> bool:
@@ -157,10 +158,10 @@ def is_worker_running(worker: Optional[QThread]) -> bool:
         return False
 
 
-def stop_worker(worker: Optional[QThread], timeout_ms: int = 2500) -> None:
-    """Detiene un worker de forma determinista y cooperativa sin terminate() destructivo."""
+def stop_worker(worker: Optional[QThread], timeout_ms: int = 2500) -> bool:
+    """Detiene un worker de forma determinista y cooperativa sin terminate() destructivo (B4 Claude)."""
     if not is_worker_running(worker):
-        return
+        return True
 
     if hasattr(worker, "cancel"):
         try:
@@ -171,11 +172,21 @@ def stop_worker(worker: Optional[QThread], timeout_ms: int = 2500) -> None:
     try:
         worker.requestInterruption()
         if worker.wait(timeout_ms):
-            return
+            return True
         worker.quit()
-        worker.wait(500)
-    except Exception:
-        pass
+        if worker.wait(500):
+            return True
+        import logging
+        logging.getLogger("theme").warning(
+            "Worker %s no finalizó tras %dms + quit(); posible bloqueo en I/O.",
+            type(worker).__name__, timeout_ms
+        )
+        return False
+    except Exception as exc:
+        import logging
+        logging.getLogger("theme").exception("Error deteniendo worker %s: %s", type(worker).__name__, exc)
+        return False
+
 
 FLOYDIA_SUITE_QSS = f"""
 QMainWindow {{

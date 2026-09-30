@@ -147,9 +147,8 @@ def atomic_write_text(path: str, text: str, mode: int = 0o644) -> None:
     try:
         with open(lock_path, "a", encoding="utf-8") as lock_file:
             if not _flock_with_timeout(lock_file.fileno(), fcntl.LOCK_EX):
-                logger.warning(
-                    "Lock exclusivo ocupado tras %.1fs en %s; se procede sin lock (riesgo asumido).",
-                    FLOCK_TIMEOUT_S, lock_path,
+                raise TimeoutError(
+                    f"Lock exclusivo ocupado tras {FLOCK_TIMEOUT_S:.1f}s en {lock_path}; escritura abortada para prevenir corrupción."
                 )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -190,7 +189,7 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def atomic_write_json(path: str, data: Dict[str, Any], mode: int = 0o644) -> None:
+def atomic_write_json(path: str, data: Dict[str, Any], mode: int = 0o600) -> None:
     """
     Escritura atómica y tolerante a fallos de un diccionario a JSON.
 
@@ -198,6 +197,7 @@ def atomic_write_json(path: str, data: Dict[str, Any], mode: int = 0o644) -> Non
     - fsync fuerza el volcado al medio físico antes del rename.
     - os.replace es atómico: el lector ve la versión previa completa o la nueva completa.
     - Limpieza automática de temporales huérfanos ante cualquier error.
+    - mode 0o600 por defecto para evitar fugas de secretos locales.
     """
     directory = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(directory, exist_ok=True)
@@ -207,9 +207,8 @@ def atomic_write_json(path: str, data: Dict[str, Any], mode: int = 0o644) -> Non
     try:
         with open(lock_path, "a", encoding="utf-8") as lock_file:
             if not _flock_with_timeout(lock_file.fileno(), fcntl.LOCK_EX):
-                logger.warning(
-                    "Lock exclusivo ocupado tras %.1fs en %s; se procede sin lock (riesgo asumido).",
-                    FLOCK_TIMEOUT_S, lock_path,
+                raise TimeoutError(
+                    f"Lock exclusivo ocupado tras {FLOCK_TIMEOUT_S:.1f}s en {lock_path}; escritura abortada para prevenir corrupción."
                 )
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -231,7 +230,10 @@ def atomic_write_json(path: str, data: Dict[str, Any], mode: int = 0o644) -> Non
                     pass
                 logger.debug("Estado persistido atómicamente: %s", path)
             finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
     except Exception:
         try:
             if os.path.exists(tmp_path):
@@ -240,6 +242,27 @@ def atomic_write_json(path: str, data: Dict[str, Any], mode: int = 0o644) -> Non
             pass
         logger.exception("Fallo al persistir estado atómico en %s", path)
         raise
+
+
+# Alias canónico retrocompatible para módulos clientes de la suite
+atomic_json_write = atomic_write_json
+
+
+def sanitize_sensitive_text(text: str) -> str:
+    """
+    Sanitiza claves de API, tokens y credenciales en textos, excepciones o logs.
+    Sustituye patrones sk-..., Bearer ..., key=... por versiones ofuscadas.
+    """
+    if not text:
+        return ""
+    import re
+    # sk-... o claves alfanuméricas largas
+    t = re.sub(r"(sk-[a-zA-Z0-9_\-]{8})[a-zA-Z0-9_\-]+", r"\1...", str(text))
+    # Tokens bearer
+    t = re.sub(r"(Bearer\s+)[a-zA-Z0-9_\-\.]{10,}", r"\1[REDACTED_TOKEN]", t, flags=re.IGNORECASE)
+    # Patrones key= o password= en URLs / query strings
+    t = re.sub(r"((?:api[_-]?key|password|secret|token|pwd)=)[^&\s]+", r"\1[REDACTED]", t, flags=re.IGNORECASE)
+    return t
 
 
 def atomic_read_json(
@@ -278,20 +301,17 @@ def atomic_read_json(
         if not isinstance(data, dict):
             raise ValueError("La raíz del archivo JSON no es un objeto/diccionario")
         return data
-    except (json.JSONDecodeError, ValueError, OSError) as exc:
+    except OSError as exc:
+        # Fallo temporal de I/O, permisos o lock: NO tocar ni borrar el archivo del usuario
+        logger.warning("Fallo transitorio de I/O al leer %s (archivo preservado intacto): %s", path, exc)
+        return default
+    except (json.JSONDecodeError, ValueError) as exc:
+        # Corrupción sintáctica real verificada: mover a cuarentena
         _purge_stale_quarantines(path)
         quarantine = f"{path}.corrupt-{utc_now_iso().replace(':', '')}"
-        moved = False
         try:
             os.replace(path, quarantine)
-            moved = True
             logger.warning("JSON corrupto detectado y cuarentenado: %s (%s)", quarantine, exc)
-        except OSError:
-            # Último recurso: eliminar el corrupto para romper el bucle de lectura fallida.
-            try:
-                os.remove(path)
-                moved = True
-                logger.error("JSON corrupto eliminado (no se pudo cuarentenar): %s (%s)", path, exc)
-            except OSError:
-                logger.error("No se pudo ni cuarentenar ni eliminar el JSON corrupto: %s (%s)", path, exc)
+        except OSError as q_err:
+            logger.error("No se pudo mover el JSON corrupto a cuarentena: %s (%s)", path, q_err)
         return default

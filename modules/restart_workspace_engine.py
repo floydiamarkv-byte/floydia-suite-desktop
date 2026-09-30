@@ -131,19 +131,26 @@ def _get_clean_env() -> Dict[str, str]:
     return clean
 
 
-def _build_ssh_base(user: str, ip: str, pwd: str, timeout_sec: int = 6) -> List[str]:
-    """Construye el comando SSH base según si hay contraseña (sshpass) o clave SSH."""
+def _build_ssh_base(user: str, ip: str, pwd: str, timeout_sec: int = 6) -> Tuple[List[str], Dict[str, str]]:
+    """
+    Construye el comando SSH base según si hay contraseña (sshpass) o clave SSH.
+    CRÍTICO (P0 Seguridad / B-02): Jamás pasa contraseñas por argv (-p). Utiliza sshpass -e
+    con la variable SSHPASS inyectada exclusivamente en el entorno local del subproceso.
+    """
     base = [
         "ssh",
         "-o", f"ConnectTimeout={timeout_sec}",
-        "-o", "StrictHostKeyChecking=no",
+        "-o", "StrictHostKeyChecking=accept-new",
         "-o", "UserKnownHostsFile=/dev/null",
         "-o", "LogLevel=ERROR",
+        "-o", "SendEnv=LC_ALL",
     ]
+    extra_env: Dict[str, str] = {"LC_ALL": "C"}
     if pwd:
-        return ["sshpass", "-p", pwd] + base
+        extra_env["SSHPASS"] = pwd
+        return ["sshpass", "-e"] + base, extra_env
     else:
-        return base + ["-o", "BatchMode=yes"]
+        return base + ["-o", "BatchMode=yes"], extra_env
 
 
 def _is_reboot_disconnect(stderr_text: str, returncode: int) -> bool:
@@ -210,9 +217,11 @@ def execute_reboot_node(
     if n_type == "proxmox":
         try:
             log(f"Conectando a Proxmox ({ip})...", "INFO")
-            ssh_cmd = _build_ssh_base(user, ip, pwd, timeout_sec=6) + [f"{user}@{ip}", "systemctl reboot || reboot"]
+            ssh_base, extra_env = _build_ssh_base(user, ip, pwd, timeout_sec=6)
+            ssh_cmd = ssh_base + [f"{user}@{ip}", "systemctl reboot || reboot"]
+            sub_env = {**clean_env, **extra_env}
             
-            res = subprocess.run(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=8, env=clean_env)
+            res = subprocess.run(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=8, env=sub_env)
             if res.returncode == 0 or _is_reboot_disconnect(res.stderr, res.returncode):
                 log(f"Comando de reinicio enviado a Proxmox ({ip}).", "SUCCESS")
                 return True, "Reinicio enviado a Proxmox"
@@ -232,9 +241,11 @@ def execute_reboot_node(
         try:
             log(f"Enviando orden de reinicio a {n_name} ({user}@{ip})...", "INFO")
             remote_cmd = "sudo -n reboot || sudo -n shutdown -r now || sudo systemctl reboot || reboot"
-            ssh_cmd = _build_ssh_base(user, ip, pwd, timeout_sec=5) + [f"{user}@{ip}", remote_cmd]
+            ssh_base, extra_env = _build_ssh_base(user, ip, pwd, timeout_sec=5)
+            ssh_cmd = ssh_base + [f"{user}@{ip}", remote_cmd]
+            sub_env = {**clean_env, **extra_env}
             
-            res = subprocess.run(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=7, env=clean_env)
+            res = subprocess.run(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=7, env=sub_env)
             if res.returncode == 0 or _is_reboot_disconnect(res.stderr, res.returncode):
                 log(f"Orden de reinicio aceptada por {n_name}.", "SUCCESS")
                 return True, f"Reinicio enviado a {n_name}"
@@ -254,9 +265,11 @@ def execute_reboot_node(
         try:
             log(f"Enviando comando RouterOS '/system reboot' a {n_name} ({ip})...", "INFO")
             script_reboot = "/system reboot"
-            ssh_cmd = _build_ssh_base(user, ip, pwd, timeout_sec=6) + [f"{user}@{ip}", script_reboot]
+            ssh_base, extra_env = _build_ssh_base(user, ip, pwd, timeout_sec=6)
+            ssh_cmd = ssh_base + [f"{user}@{ip}", script_reboot]
+            sub_env = {**clean_env, **extra_env}
             
-            proc = subprocess.Popen(ssh_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=clean_env)
+            proc = subprocess.Popen(ssh_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=sub_env)
             try:
                 out, err = proc.communicate(input="y\n", timeout=6)
                 if proc.returncode == 0 or _is_reboot_disconnect(err, proc.returncode):

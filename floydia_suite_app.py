@@ -21,7 +21,7 @@ SUITE_DIR = os.path.dirname(os.path.abspath(__file__))
 if SUITE_DIR not in sys.path:
     sys.path.insert(0, SUITE_DIR)
 
-from PyQt6.QtCore import Qt, QSize, QPoint, QRect, QByteArray
+from PyQt6.QtCore import Qt, QSize, QPoint, QRect, QByteArray, QTimer
 from PyQt6.QtGui import QIcon, QFont, QPixmap, QCloseEvent, QGuiApplication
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -84,6 +84,7 @@ class FloydIASuiteApp(QMainWindow):
         self.tab_factories = [
             (lambda i=i: _load_tab_class(i)) for i in range(len(TAB_SPECS))
         ]
+        self._pending_module_states: Dict[str, Any] = {}
         self.init_ui(initial_tab)
         self.restore_session_state(initial_tab)
 
@@ -291,6 +292,7 @@ class FloydIASuiteApp(QMainWindow):
                 self.tab_instances[index] = tab_widget
                 container = self.stack.widget(index)
                 container.layout().addWidget(tab_widget)
+                self._apply_pending_module_states()
             except Exception as exc:
                 logger.exception("Error instanciando pestaña %s: %s", index, exc)
                 self.status_bar.showMessage(f"❌ Error cargando pestaña {index}: {exc}", 5000)
@@ -408,18 +410,25 @@ class FloydIASuiteApp(QMainWindow):
             except Exception:
                 pass
 
-        # 3. Restaurar módulos instanciados
+        # 3. Restaurar módulos (inmediatos y diferidos para lazy loading B-01)
         modules = state.get("modules", {})
+        self._pending_module_states = {k: v for k, v in modules.items() if isinstance(v, dict)}
+        self._apply_pending_module_states()
+
+    def _apply_pending_module_states(self) -> None:
+        """Aplica estados persistidos a las pestañas a medida que son instanciadas (B-01 GLM)."""
         for idx, key in enumerate(TAB_MODULE_KEYS):
-            mod_data = modules.get(key)
-            if mod_data and self.tab_instances[idx] is not None and not isinstance(self.tab_instances[idx], type):
-                tab_obj = self.tab_instances[idx]
-                restore_hook = getattr(tab_obj, "restore_state", None)
-                if callable(restore_hook):
-                    try:
-                        restore_hook(mod_data)
-                    except Exception as exc:
-                        logger.warning("Error restaurando estado en %s: %s", key, exc)
+            mod_data = self._pending_module_states.get(key)
+            tab_obj = self.tab_instances[idx]
+            if not mod_data or tab_obj is None or isinstance(tab_obj, type):
+                continue
+            hook = getattr(tab_obj, "restore_state", None)
+            if callable(hook):
+                try:
+                    hook(mod_data)
+                except Exception as exc:
+                    logger.warning("Error restaurando estado diferido en %s: %s", key, exc)
+            self._pending_module_states.pop(key, None)
 
     def _collect_session_state(self) -> dict:
         """Recopila el estado completo de la UI y de las pestañas instanciadas."""
@@ -440,6 +449,9 @@ class FloydIASuiteApp(QMainWindow):
                         state["modules"][key] = save_hook()
                     except Exception as exc:
                         logger.warning("Error en save_state de %s: %s", key, exc)
+            elif key in self._pending_module_states:
+                # Preservar el estado de pestañas no instanciadas en esta sesión (B-01)
+                state["modules"][key] = self._pending_module_states[key]
         return state
 
     def closeEvent(self, event: QCloseEvent):
@@ -543,6 +555,13 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyleSheet(FLOYDIA_SUITE_QSS)
+
+    # B-05 (GLM): Manejo determinista de SIGINT (Ctrl+C) con QTimer pump para disparo ordenado de closeEvent()
+    import signal
+    signal.signal(signal.SIGINT, lambda s, f: app.quit())
+    sig_timer = QTimer()
+    sig_timer.timeout.connect(lambda: None)
+    sig_timer.start(300)
     
     window = FloydIASuiteApp(initial_tab=init_tab)
     window.show()

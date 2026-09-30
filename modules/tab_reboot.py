@@ -259,10 +259,7 @@ except ImportError:
         engine = DefaultRebootEngine()
 
 
-def atomic_json_write(path: str, data: Any) -> None:
-    """Escritura atómica — delega en el SSOT modules/state_store.atomic_write_json."""
-    from modules.state_store import atomic_write_json as _ss_write
-    _ss_write(path, data)
+from modules.state_store import atomic_write_json as atomic_json_write
 
 from theme import (
     COLOR_BG_DARK, COLOR_BG_CARD, COLOR_BORDER, COLOR_PRIMARY_CYAN,
@@ -770,6 +767,14 @@ class TabReboot(QWidget):
                 box.setInformativeText("<span style='color: #E2E8F0;'>Debes marcar la casilla de al menos un nodo en la lista superior para ejecutar el reinicio.</span>")
                 box.addButton("Entendido", QMessageBox.ButtonRole.AcceptRole)
                 box.exec()
+                return
+
+            # B-12 (GLM): Validar previamente si hay un health-check o worker activo para no descartar silenciosamente
+            if (self.worker and self.worker.isRunning()) or (self.health_worker and self.health_worker.isRunning()):
+                QMessageBox.warning(
+                    self, "Operación en Curso",
+                    "Hay una verificación de salud o secuencia activa en este momento. Espera a que concluya antes de iniciar el reinicio."
+                )
                 return
 
             is_dry = self.chk_dry_run.isChecked()

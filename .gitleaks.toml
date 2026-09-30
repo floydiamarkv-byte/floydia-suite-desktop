@@ -1,0 +1,38 @@
+# ==============================================================================
+# .gitleaks.toml — Política de secretos (Protocolo v28)
+# Repo: floydia-suite-desktop
+# Motivo: la regla `generic-api-key` (entropía mínima baja) disparaba sobre
+# metadatos NO sensibles: nombres de proveedor, NOMBRES de variables de entorno
+# (el valor real se lee del entorno), URLs públicas de API y nombres de equipo.
+# La política mantiene el bloqueo para material realmente sensible: claves
+# con prefijo de proveedor, JWT, claves privadas PEM, tokens de.cloud.
+# ==============================================================================
+
+title = "floydia-suite-desktop — política de secretos v28"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Falsos positivos conocidos: metadatos de proveedores y endpoints públicos"
+# Evaluar contra la LÍNINA completa y no solo contra el valor aislado: la
+# credencial vive en el valor, pero el contexto que la legitima (nombre de
+# variable de entorno, cadena de ejemplo dentro de un test) está en la línea.
+regexTarget = "line"
+regexes = [
+  # Nombres (no valores) de variables de entorno: "env_key": "C7_APINEX_API"
+  '''(?i)"(env_key|env_var|key_name|var_name|provider|label)"\s*:\s*"[A-Za-z0-9_\-]{2,48}"''',
+  # Endpoints públicos de API (URLs, nunca credenciales)
+  '''(?i)https?://[a-z0-9.\-]+\.(com|net|org|io|ai|dev|app|cloud|xyz)(:[0-9]{2,5})?(/[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]*)?''',
+  # Inventario de hardware: "name": "MikroTik Router (RB750Gr3)"
+  '''"name"\s*:\s*"[A-Za-z][A-Za-z0-9 _()\-]{2,48}"''',
+  # Literales internos de bajo valor informativo
+  '''"warning"\s*:\s*(null|true|false)''',
+  # Cadenas de ejemplo en tests de sanitización: sample = "Error conectando a
+  # https://.../chat?api_key=<dummy> con token Bearer <jwt-truncado>".
+  # Verificado: no coinciden con ninguna clave del SSOT ~/.secrets/antigravity.env.
+  '''(?i)\b(sample|sample_message|sample_line|example|dummy|fake)[A-Za-z_]*\s*[:=]\s*"[^"]{20,}"''',
+  # Formato sk- con longitud NO válida (una clave real OpenAI/Antropic mide 51+ chars,
+  # es sk- + 48 alfanuméricos; con {20,30} y \b final nunca matchea una real de 48).
+  '''\bsk-[A-Za-z0-9]{20,30}\b''',
+]

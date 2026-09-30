@@ -36,10 +36,10 @@ from theme import (
 )
 
 
-def check_sudo_active() -> bool:
-    """Comprueba de forma no bloqueante si sudo está habilitado sin solicitar contraseña."""
+def check_sudo_active(timeout_sec: float = 2.0) -> bool:
+    """Comprueba de forma no bloqueante y resiliente si sudo está habilitado sin solicitar contraseña."""
     try:
-        res = subprocess.run(["sudo", "-n", "true"], capture_output=True, check=False)
+        res = subprocess.run(["sudo", "-n", "true"], capture_output=True, check=False, timeout=timeout_sec)
         return res.returncode == 0
     except Exception:
         return False
@@ -163,6 +163,30 @@ def is_path_strictly_protected(path: str) -> bool:
     if any(seg in critical_segments for seg in parts):
         return True
 
+    # 5. Blindaje de raíces y archivos críticos del sistema, credenciales y git
+    home_dir = os.path.expanduser("~")
+    critical_system_roots = [
+        os.path.join(home_dir, ".ssh"),
+        os.path.join(home_dir, ".secrets"),
+        os.path.join(home_dir, ".gnupg"),
+        os.path.join(home_dir, ".config", "opencode"),
+        os.path.join(home_dir, ".hermes"),
+        "/etc",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/boot",
+        "/lib",
+        "/lib64",
+    ]
+    for root in critical_system_roots:
+        if norm == root or norm.startswith(root + os.sep):
+            return True
+
+    # Repositorios Git y Memory Bank inmutable
+    if "/.git" in norm or "/memory-bank" in norm:
+        return True
+
     return False
 
 
@@ -269,9 +293,18 @@ class ActionDelete(BleachAction):
 
             except PermissionError:
                 if really_delete and use_sudo:
-                    res = subprocess.run(["sudo", "-n", "rm", "-rf", p], capture_output=True, check=False)
+                    real_p = os.path.realpath(p)
+                    if is_path_strictly_protected(real_p):
+                        yield (0, p, "PROTECTED")
+                        continue
+                    if os.path.isdir(real_p) and not os.path.islink(p):
+                        res = subprocess.run(["sudo", "-n", "rmdir", p], capture_output=True, check=False)
+                        tag = "DELETED_DIR (sudo)"
+                    else:
+                        res = subprocess.run(["sudo", "-n", "rm", "-f", p], capture_output=True, check=False)
+                        tag = "DELETED (sudo)"
                     if res.returncode == 0:
-                        yield (size, p, "DELETED (sudo)")
+                        yield (size, p, tag)
                     else:
                         yield (0, p, "PERMISSION_DENIED")
                 else:

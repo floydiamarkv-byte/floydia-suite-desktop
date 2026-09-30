@@ -101,6 +101,8 @@ def terminate_verified_processes(processes: List[psutil.Process], grace_seconds:
 
     for proc in safe_processes:
         try:
+            if not proc.is_running():
+                continue
             proc.terminate()
             terminated += 1
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
@@ -110,6 +112,8 @@ def terminate_verified_processes(processes: List[psutil.Process], grace_seconds:
 
     for proc in alive:
         try:
+            if not proc.is_running():
+                continue
             proc.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
             errors.append(f"PID {proc.pid}: {exc}")
@@ -225,7 +229,7 @@ class OptimizerWorker(CancellableThread):
                 try:
                     subprocess.run(["sync"], check=False, timeout=5)
                     res = subprocess.run(
-                        ["sudo", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"],
+                        ["sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"],
                         capture_output=True, text=True, timeout=4, check=False
                     )
                     if res.returncode == 0:
@@ -729,6 +733,9 @@ class TabOptimizer(QWidget):
         self.opt_worker.start()
 
     def _on_opt_worker_finished(self):
+        # B-10 (GLM / Claude): Restaurar botones incondicionalmente ante finalización o excepción
+        self.btn_full_opt.setEnabled(True)
+        self.btn_exec_tasks.setEnabled(True)
         if self.opt_worker:
             self.opt_worker.deleteLater()
             self.opt_worker = None

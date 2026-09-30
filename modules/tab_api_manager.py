@@ -128,60 +128,10 @@ def sanitize_api_for_disk(api: Dict[str, Any]) -> Dict[str, Any]:
     return c
 
 
-def atomic_json_write(path: str, data: Any, mode: int = 0o600) -> None:
-    """Escritura atómica, durable (fsync archivo y directorio) y protegida con fcntl.flock."""
-    import tempfile
-    path = os.path.abspath(path)
-    parent = os.path.dirname(path)
-    os.makedirs(parent, exist_ok=True)
-    lock_path = f"{path}.lock"
+from modules.state_store import atomic_write_json as atomic_json_write, atomic_read_json
 
-    fd, temp_path = tempfile.mkstemp(dir=parent, prefix=".tmp-", suffix=".json")
-    try:
-        with open(lock_path, "a", encoding="utf-8") as lock_file:
-            try:
-                # Lock con timeout (LOCK_NB + deadline) para no congelar el QEventLoop.
-                _lock_deadline = time.time() + 3.0
-                _lock_acquired = False
-                while True:
-                    try:
-                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        _lock_acquired = True
-                        break
-                    except BlockingIOError:
-                        if time.time() >= _lock_deadline:
-                            break
-                        time.sleep(0.05)
-                if not _lock_acquired:
-                    print(f"[WARN] Lock ocupado tras 3s en {lock_path}; se escribe sin lock (riesgo asumido).")
-            except Exception:
-                pass
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                    f.flush()
-                    os.fsync(f.fileno())
-                try:
-                    os.chmod(temp_path, mode)
-                except Exception:
-                    pass
-                os.replace(temp_path, path)
-                try:
-                    dir_fd = os.open(parent, os.O_DIRECTORY)
-                    try:
-                        os.fsync(dir_fd)
-                    finally:
-                        os.close(dir_fd)
-                except Exception:
-                    pass
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    finally:
-        if os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+# B-04 (GLM): Archivo de registro de tumbas para APIs eliminadas intencionalmente
+DELETED_IDS_FILE = os.path.join(CACHE_DIR, "deleted_api_ids.json")
 
 
 # Flota Inicial Canónica Multi-Cuenta [C1..C8]
@@ -1718,7 +1668,17 @@ class TabApiManager(QWidget):
         self.init_data()
         self.init_ui()
 
+    def _load_deleted_ids(self) -> set:
+        """Carga el conjunto de IDs de APIs eliminadas intencionalmente por el usuario (B-04)."""
+        data = atomic_read_json(DELETED_IDS_FILE, default={"ids": []})
+        return set(data.get("ids", []))
+
+    def _save_deleted_ids(self, ids: set) -> None:
+        """Persiste las tumbas de IDs de APIs eliminadas (B-04)."""
+        atomic_json_write(DELETED_IDS_FILE, {"ids": sorted(list(ids))})
+
     def init_data(self):
+        self.env_map = load_env_vars()
         loaded_apis = []
         if os.path.exists(APIS_CONFIG_FILE):
             try:
@@ -1729,10 +1689,12 @@ class TabApiManager(QWidget):
 
         existing_ids = {a.get("id") for a in loaded_apis if a.get("id")}
         self.apis = list(loaded_apis) if loaded_apis else []
+        deleted_ids = self._load_deleted_ids()
 
-        # Incorporar de forma no destructiva las cuentas multi-cuenta canónicas que falten
+        # Incorporar de forma no destructiva las cuentas multi-cuenta canónicas que falten y no hayan sido borradas
         for def_api in DEFAULT_APIS:
-            if def_api.get("id") not in existing_ids:
+            def_id = def_api.get("id")
+            if def_id not in existing_ids and def_id not in deleted_ids:
                 self.apis.append(dict(def_api))
                 existing_ids.add(def_api.get("id"))
 
@@ -2237,6 +2199,10 @@ class TabApiManager(QWidget):
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.apis = [a for a in self.apis if a.get("id") != api_id]
+            # B-04 (GLM): Registrar tumba persistida para que no resucite en futuros reinicios
+            d_ids = self._load_deleted_ids()
+            d_ids.add(api_id)
+            self._save_deleted_ids(d_ids)
             self.save_apis()
             self.populate_table()
             self.update_kpi_dashboard()
@@ -2284,6 +2250,9 @@ class TabApiManager(QWidget):
         self.card_health.findChild(QLabel, "SubLabel").setText(f"{datetime.datetime.now().strftime('%H:%M:%S')}")
 
     def _on_ping_worker_cleanup(self):
+        # B-10 (GLM / Claude): Restaurar botón incondicionalmente
+        self.btn_test_all.setEnabled(True)
+        self.btn_test_all.setText("⚡ Probar Conexión (Ping)")
         if self.ping_worker:
             self.ping_worker.deleteLater()
             self.ping_worker = None
@@ -2315,6 +2284,9 @@ class TabApiManager(QWidget):
         )
 
     def _on_propagate_worker_cleanup(self):
+        # B-10 (GLM / Claude): Restaurar botón incondicionalmente
+        self.btn_propagate_all.setEnabled(True)
+        self.btn_propagate_all.setText("🚀 PROPAGAR A TODOS LOS AGENTES (1-CLIC)")
         if self.propagate_worker:
             self.propagate_worker.deleteLater()
             self.propagate_worker = None

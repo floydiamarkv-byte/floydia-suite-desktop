@@ -101,44 +101,12 @@ def sanitize_for_persistence(value):
     return value
 
 
-def atomic_json_write(path: str, data: dict, mode: int = 0o600) -> None:
-    """Escritura atómica, durable (fsync archivo y directorio) y protegida con fcntl.flock."""
-    import tempfile
-    path = os.path.abspath(path)
-    parent = os.path.dirname(path)
-    os.makedirs(parent, exist_ok=True)
-    lock_path = f"{path}.lock"
-
-    fd, temp_path = tempfile.mkstemp(dir=parent, prefix=".tmp-", suffix=".json")
-    try:
-        with open(lock_path, "a", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                    f.flush()
-                    os.fsync(f.fileno())
-                try:
-                    os.chmod(temp_path, mode)
-                except Exception:
-                    pass
-                os.replace(temp_path, path)
-                try:
-                    dir_fd = os.open(parent, os.O_DIRECTORY)
-                    try:
-                        os.fsync(dir_fd)
-                    finally:
-                        os.close(dir_fd)
-                except Exception:
-                    pass
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    finally:
-        if os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+from modules.state_store import (
+    atomic_write_json as atomic_json_write,
+    atomic_read_json,
+    load_jsonc,
+    sanitize_sensitive_text,
+)
 
 
 class SortableTableWidgetItem(QTableWidgetItem):
@@ -1923,7 +1891,11 @@ class TabRadar(QWidget):
         self.txt_search_model = QLineEdit()
         self.txt_search_model.setPlaceholderText("🔍 Filtrar por nombre, [C1], ID, proveedor o extracto...")
         self.txt_search_model.setMinimumWidth(240)
-        self.txt_search_model.textChanged.connect(self.apply_table_filters)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(150)
+        self._search_timer.timeout.connect(self.apply_table_filters)
+        self.txt_search_model.textChanged.connect(lambda _: self._search_timer.start())
         action_bar.addWidget(self.txt_search_model)
 
         # Filtro de Cuentas [C1..C8, C9]
@@ -3439,10 +3411,13 @@ class TabRadar(QWidget):
             existing_json = {}
             if os.path.exists(source_path):
                 try:
-                    with open(source_path, "r", encoding="utf-8") as f:
-                        existing_json = json.load(f)
-                except Exception:
-                    existing_json = {}
+                    existing_json = load_jsonc(source_path)
+                except Exception as parse_exc:
+                    err_msg = f"❌ {source_path} no parseable ({parse_exc}); target omitido para preservar la configuración del usuario."
+                    self.log(err_msg)
+                    if not silent:
+                        QMessageBox.warning(self, "Aviso de Seguridad", err_msg)
+                    return
 
             existing_mcp = existing_json.get("mcp", {})
             existing_providers = existing_json.get("provider", {})
@@ -3593,14 +3568,15 @@ class TabRadar(QWidget):
                 enabled_set.discard("b-ai-c7")
             enabled_providers = sorted(list(enabled_set))
 
-            opencode_cfg = {
+            opencode_cfg = dict(existing_json) if isinstance(existing_json, dict) else {}
+            opencode_cfg.update({
                 "$schema": "https://opencode.ai/config.json",
                 "model": main_model,
                 "small_model": small_model,
                 "disabled_providers": disabled_providers,
                 "enabled_providers": enabled_providers,
                 "provider": final_providers
-            }
+            })
             if existing_mcp:
                 opencode_cfg["mcp"] = existing_mcp
 
