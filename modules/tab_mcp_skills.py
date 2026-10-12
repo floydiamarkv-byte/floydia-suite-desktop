@@ -66,6 +66,12 @@ class DefaultSkillsHelper:
             "description": "Skills Indispensables Always-On: Orquestador, Harness, Workflow, Investiga, Master-Update y Mejora-Prompt",
             "skills": ["f-orquestador-floydia", "f-harness", "f-harness-workflow", "f-investiga", "f-master-update", "f-mejora-prompt"]
         },
+        "web-design": {
+            "name": "🎨 Diseño Web",
+            "badge": "6 Skills",
+            "description": "Skills de diseño y calidad web: accesibilidad WCAG, buenas prácticas, Core Web Vitals, performance, SEO y auditoría integral",
+            "skills": ["accessibility", "best-practices", "core-web-vitals", "performance", "seo", "web-quality-audit"]
+        },
         "full-suite": {
             "name": "🚀 Full Canónica FloydIA",
             "badge": "8 Skills",
@@ -127,7 +133,7 @@ HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.herm
 DSH_CONFIG = os.path.expanduser("~/.dsh/profiles/web/cordis.patch.yml")
 
 
-from modules.state_store import atomic_write_json as atomic_json_write
+from modules.state_store import atomic_write_json as atomic_json_write, atomic_write_text
 
 from theme import (
     COLOR_BG_DARK, COLOR_BG_CARD, COLOR_BORDER, COLOR_PRIMARY_CYAN,
@@ -1063,33 +1069,55 @@ class TabMcpSkills(QWidget):
                         )
                     return False
 
-            if not opencode_cfg:
-                opencode_cfg = {
-                    "$schema": "https://opencode.ai/config.json",
-                    "model": "deepseek/deepseek-chat",
-                    "small_model": "mistral/ministral-8b-latest"
-                }
-
-            # Fusión no destructiva (FSU-008): preserva MCPs manuales del usuario.
+            # Fusión no destructiva (FSU-008) EN MEMORIA: opencode.jsonc es el SSOT
+            # del harness y la suite NO lo escribe (remediación 2026-10-11).
+            # En su lugar se exporta el fragmento "mcp" ya fusionado a cache/ para
+            # que el operador lo revise y lo copie a mano al SSOT.
             from modules.state_store import (
                 load_managed_registry, merge_managed_section, save_managed_registry
             )
             registry = load_managed_registry()
+            opencode_cfg = {}
+            if os.path.exists(OPENCODE_CONFIG):
+                try:
+                    from modules.state_store import load_jsonc
+                    opencode_cfg = load_jsonc(OPENCODE_CONFIG)
+                except Exception as parse_exc:
+                    if not silent:
+                        QMessageBox.warning(
+                            self,
+                            "OpenCode no leído",
+                            f"⚠️ No se pudo leer {OPENCODE_CONFIG} ({parse_exc}). "
+                            "Se exporta el fragmento sin poder fusionar con el SSOT actual."
+                        )
+                    opencode_cfg = {}
+
             merged_mcp, _managed_now = merge_managed_section(
                 opencode_cfg.get("mcp", {}), opencode_mcp, "opencode", registry
             )
+            # Decisión del operador (2026-10-12): propagación automática 1-clic ON.
+            # La suite escribe el SSOT con backup y vía write_harness_owned (auditable).
+            suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            export_path = os.path.join(suite_root, "cache", "mcp_export_opencode.json")
+            atomic_json_write(export_path, {"mcp": merged_mcp})
+
             opencode_cfg["mcp"] = merged_mcp
-            _backup_config_file(OPENCODE_CONFIG)
-            os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
-            atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
-            # Persistir el registro SOLO tras éxito de la escritura del target.
+            if os.path.exists(OPENCODE_CONFIG):
+                shutil.copy2(OPENCODE_CONFIG, OPENCODE_CONFIG + ".bak-suite")
+            from modules.state_store import write_harness_owned
+            write_harness_owned(
+                OPENCODE_CONFIG, opencode_cfg,
+                reason="MCP Cockpit: propagación automática 1-clic a opencode.jsonc (decisión operador 2026-10-12)"
+            )
             save_managed_registry(registry)
 
             if not silent:
                 QMessageBox.information(
                     self,
-                    "OpenCode MCP Sincronizado",
-                    f"✅ Sincronizados exitosamente {len(opencode_mcp)} servidores MCP en OpenCode:\n{OPENCODE_CONFIG}"
+                    "OpenCode sincronizado",
+                    f"✅ opencode.jsonc actualizado con {len(merged_mcp)} MCPs.\n"
+                    f"Backup: {OPENCODE_CONFIG}.bak-suite\n"
+                    f"Copia de auditoría: {export_path}"
                 )
             return True
         except Exception as e:
@@ -1120,20 +1148,37 @@ class TabMcpSkills(QWidget):
             with open(HERMES_CONFIG, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # Fusión no destructiva (FSU-008): preserva entradas manuales del usuario
-            # dentro del bloque mcp_servers; solo elimina/actualiza las gestionadas.
-            from modules.state_store import load_managed_registry, save_managed_registry, atomic_write_text
+            # Fusión no destructiva (FSU-008) EN MEMORIA: ~/.hermes/config.yaml es
+            # config DERIVADA del SSOT (se regenera con sync_models_all.sh). La
+            # suite no la escribe; exporta el resultado a cache/ para revisión.
+            from modules.state_store import load_managed_registry, save_managed_registry
             registry = load_managed_registry()
-            _backup_config_file(HERMES_CONFIG)
+            content = ""
+            if os.path.exists(HERMES_CONFIG):
+                with open(HERMES_CONFIG, "r", encoding="utf-8") as f:
+                    content = f.read()
             new_content = _merge_hermes_mcp_content(content, generated_entries, registry)
-            atomic_write_text(HERMES_CONFIG, new_content)
+            suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            export_path = os.path.join(suite_root, "cache", "mcp_export_hermes.yaml")
+            atomic_write_text(export_path, new_content)
+
+            # Decisión del operador (2026-10-12): propagación automática 1-clic ON.
+            shutil.copy2(HERMES_CONFIG, HERMES_CONFIG + ".bak-suite")
+            from modules.state_store import _harness_write_grant
+            with _harness_write_grant(
+                "MCP Cockpit: escritura automática de mcp_servers en hermes/config.yaml (decisión operador 2026-10-12)"
+            ):
+                atomic_write_text(HERMES_CONFIG, new_content)
             save_managed_registry(registry)
 
             if not silent:
                 QMessageBox.information(
                     self,
-                    "Hermes MCP Sincronizado",
-                    f"✅ Sincronizados exitosamente {len(active_servers)} servidores MCP en Hermes:\n{HERMES_CONFIG}"
+                    "Hermes sincronizado",
+                    f"✅ ~/.hermes/config.yaml actualizado ({len(generated_entries)} MCPs).\n"
+                    f"Backup: {HERMES_CONFIG}.bak-suite\n"
+                    f"Copia de auditoría: {export_path}\n\n"
+                    "Nota: sync_models_all.sh puede regenerar este archivo desde el SSOT."
                 )
             return True
         except Exception as e:
@@ -1210,15 +1255,27 @@ class TabMcpSkills(QWidget):
     policy: never
 """)
             content = "\n".join(parts)
-            _backup_config_file(dsh_patch_path)
-            with open(dsh_patch_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            export_path = os.path.join(suite_root, "cache", "mcp_export_dsh_cordis.patch.yml")
+            atomic_write_text(export_path, content)
+
+            # Decisión del operador (2026-10-12): propagación automática 1-clic ON.
+            # Se invoca el sincronizador canónico (SSOT: mcp_config.json → cordis.patch.yml).
+            import subprocess
+            sync_script = os.path.join(SCRIPTS_DIR, "sync_dsh_mcps.py")
+            res = subprocess.run(
+                [sys.executable, sync_script],
+                capture_output=True, text=True, timeout=30
+            )
+            if res.returncode != 0:
+                raise RuntimeError(f"sync_dsh_mcps.py falló: {res.stdout}\n{res.stderr}")
 
             if not silent:
                 QMessageBox.information(
                     self,
-                    "DSH MCP Sincronizado",
-                    f"✅ Sincronizados exitosamente {len(active_entries)} servidores MCP en DeepSeek Harness:\n{dsh_patch_path}"
+                    "DSH sincronizado",
+                    f"✅ cordis.patch.yml regenerado vía sync_dsh_mcps.py.\n\n"
+                    f"{res.stdout.strip()}\n\nCopia de auditoría: {export_path}"
                 )
             return True
         except Exception as e:

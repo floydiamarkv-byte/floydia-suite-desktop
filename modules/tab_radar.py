@@ -256,6 +256,8 @@ JUSTWORKER_C7_KEY = get_secret(["C7_JUSTWORKER_API", "JUSTWORKER_API_KEY"])
 DASHSCOPE_C7_KEY = get_secret(["C7_DASHSCOPE_API_KEY", "C7_QWEN_API_KEY", "DASHSCOPE_API_KEY"])
 FIREWORKS_C7_KEY = get_secret(["C7_FIREWORKS_API_KEY", "FIREWORKS_API_KEY"])
 KIMI_C7_KEY = get_secret(["C7_KIMI_PLATFORM_API", "MOONSHOT_API_KEY"])
+EVOLINK_C7_KEY = get_secret(["C7_EVOLINK_API"])
+EVOLINK_C7_KEY = get_secret(["C7_EVOLINK_API", "EVOLINK_API_KEY"])
 
 # Alias y Claves Globales Canónicas para Catálogo Global, Advisor y Fallbacks
 GOOGLE_KEY = GOOGLE_C1_KEY
@@ -323,8 +325,6 @@ CURATED_FLEET = [
 
     # NVIDIA NIM [C7], [C1], [C9] — Flota Canónica Completa (15 modelos)
     # C7
-    {"id": "deepseek-ai/deepseek-v4-flash-0731", "name": "[256k] DeepSeek V4 Flash (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
-    {"id": "deepseek-ai/deepseek-v4-pro-0813", "name": "[256k] DeepSeek V4 Pro (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
     {"id": "moonshotai/kimi-k3", "name": "[256k] Kimi K3 Frontier (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
     {"id": "minimaxai/minimax-m3", "name": "[1M] MiniMax M3 Frontier (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY or NVIDIA_C1_KEY or NVIDIA_C9_KEY, "context": 1048576, "badge": "1M • NIM", "category": "frontier"},
     {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[256k] Nemotron 3 Nano NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
@@ -340,8 +340,6 @@ CURATED_FLEET = [
     {"id": "nvidia/riva-translate-4b-instruct-v2", "name": "[4k] Riva Translate v2 NIM", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
 
     # C1
-    {"id": "c1/deepseek-ai/deepseek-v4-flash-0731", "name": "[256k] DeepSeek V4 Flash (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
-    {"id": "c1/deepseek-ai/deepseek-v4-pro-0813", "name": "[256k] DeepSeek V4 Pro (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
     {"id": "c1/moonshotai/kimi-k3", "name": "[256k] Kimi K3 Frontier (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
     {"id": "c1/minimaxai/minimax-m3", "name": "[1M] MiniMax M3 Frontier (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 1048576, "badge": "1M • NIM", "category": "frontier"},
     {"id": "c1/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[256k] Nemotron 3 Nano NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
@@ -357,8 +355,6 @@ CURATED_FLEET = [
     {"id": "c1/nvidia/riva-translate-4b-instruct-v2", "name": "[4k] Riva Translate v2 NIM", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
 
     # C9
-    {"id": "c9/deepseek-ai/deepseek-v4-flash-0731", "name": "[256k] DeepSeek V4 Flash (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
-    {"id": "c9/deepseek-ai/deepseek-v4-pro-0813", "name": "[256k] DeepSeek V4 Pro (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "code"},
     {"id": "c9/moonshotai/kimi-k3", "name": "[256k] Kimi K3 Frontier (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
     {"id": "c9/minimaxai/minimax-m3", "name": "[1M] MiniMax M3 Frontier (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 1048576, "badge": "1M • NIM", "category": "frontier"},
     {"id": "c9/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[256k] Nemotron 3 Nano NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
@@ -373,22 +369,25 @@ CURATED_FLEET = [
     {"id": "c9/nvidia/riva-translate-4b-instruct-v1.1", "name": "[4k] Riva Translate v1.1 NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
     {"id": "c9/nvidia/riva-translate-4b-instruct-v2", "name": "[4k] Riva Translate v2 NIM", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 4096, "badge": "4k • NIM", "category": "frontier"},
 
+    # ── Delta SSOT 2026-10-11: modelos NIM presentes en el SSOT que faltaban en la flota ──
+    {"id": "c7/nvidia/nemotron-3-ultra-550b-a55b", "name": "[550B] Nemotron 3 Ultra (NIM)", "account_tag": "C7", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    {"id": "c1/nvidia/nemotron-3-ultra-550b-a55b", "name": "[550B] Nemotron 3 Ultra (NIM)", "account_tag": "C1", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C1_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    {"id": "c9/nvidia/nemotron-3-ultra-550b-a55b", "name": "[550B] Nemotron 3 Ultra (NIM)", "account_tag": "C9", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C9_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    # Slots C2 (cuenta habilitada en el SSOT que no existía en el radar)
+    {"id": "c2/moonshotai/kimi-k3", "name": "[256k] Kimi K3 Frontier (NIM)", "account_tag": "C2", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C2_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "c2/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "name": "[256k] Nemotron 3 Nano NIM", "account_tag": "C2", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C2_KEY or NVIDIA_C7_KEY, "context": 256000, "badge": "256k • NIM", "category": "frontier"},
+    {"id": "c2/nvidia/nemotron-3-super-120b-a12b", "name": "[262k] Nemotron 3 Super 120B NIM", "account_tag": "C2", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C2_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+    {"id": "c2/nvidia/nemotron-3-ultra-550b-a55b", "name": "[550B] Nemotron 3 Ultra (NIM)", "account_tag": "C2", "provider": "nvidia", "base_url": "https://integrate.api.nvidia.com/v1", "key": NVIDIA_C2_KEY or NVIDIA_C7_KEY, "context": 262144, "badge": "262k • NIM", "category": "frontier"},
+
     # Mistral AI [C1] y [C2]
     {"id": "codestral-latest", "name": "[C1] Mistral Codestral Latest", "account_tag": "C1", "provider": "mistral", "base_url": "https://api.mistral.ai/v1", "key": MISTRAL_C1_KEY, "context": 256000, "badge": "256k • Trial", "category": "code"},
     {"id": "c2/codestral-latest", "name": "[C2] Mistral Codestral Latest", "account_tag": "C2", "provider": "mistral", "base_url": "https://api.mistral.ai/v1", "key": MISTRAL_C2_KEY, "context": 256000, "badge": "256k • Trial", "category": "code"},
     {"id": "mistral-small-latest", "name": "[C1] Mistral Small Latest", "account_tag": "C1", "provider": "mistral", "base_url": "https://api.mistral.ai/v1", "key": MISTRAL_C1_KEY, "context": 128000, "badge": "128k • Pro", "category": "frontier"},
     {"id": "ministral-8b-latest", "name": "[C1] Ministral 8B Latest", "account_tag": "C1", "provider": "mistral", "base_url": "https://api.mistral.ai/v1", "key": MISTRAL_C1_KEY, "context": 128000, "badge": "128k • Fast", "category": "frontier"},
 
-    # DeepSeek Direct [Direct], [C1], [C7] — Chat V3, Reasoner R1 & V4 Flash
-    {"id": "deepseek-chat", "name": "[Direct] DeepSeek Chat V3 Paid", "account_tag": "Direct", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Paid", "category": "frontier"},
-    {"id": "deepseek-reasoner", "name": "[Direct] DeepSeek Reasoner R1 Paid", "account_tag": "Direct", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
-    {"id": "deepseek-v4-flash", "name": "[Direct] DeepSeek V4 Flash", "account_tag": "Direct", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Direct", "category": "frontier"},
-    {"id": "c1/deepseek-chat", "name": "[C1] DeepSeek Chat V3", "account_tag": "C1", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C1_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Direct", "category": "frontier"},
-    {"id": "c1/deepseek-reasoner", "name": "[C1] DeepSeek Reasoner R1", "account_tag": "C1", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C1_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
-    {"id": "c1/deepseek-v4-flash", "name": "[C1] DeepSeek V4 Flash", "account_tag": "C1", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C1_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Direct", "category": "frontier"},
-    {"id": "c7/deepseek-chat", "name": "[C7] DeepSeek Chat V3", "account_tag": "C7", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C7_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Direct", "category": "frontier"},
-    {"id": "c7/deepseek-reasoner", "name": "[C7] DeepSeek Reasoner R1", "account_tag": "C7", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C7_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Reasoner", "category": "frontier"},
-    {"id": "c7/deepseek-v4-flash", "name": "[C7] DeepSeek V4 Flash", "account_tag": "C7", "provider": "deepseek", "base_url": "https://api.deepseek.com/v1", "key": DEEPSEEK_C7_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • Direct", "category": "frontier"},
+    # DeepSeek vía EvoLink Gateway [C7] — vía canónica del harness (api.deepseek.com directo: 402 sin saldo)
+    {"id": "deepseek-chat", "name": "[C7] DeepSeek Chat (EvoLink)", "account_tag": "C7", "provider": "evolink", "base_url": "https://api.evolink.ai/v1", "key": EVOLINK_C7_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • EvoLink", "category": "frontier"},
+    {"id": "deepseek-reasoner", "name": "[C7] DeepSeek Reasoner (EvoLink)", "account_tag": "C7", "provider": "evolink", "base_url": "https://api.evolink.ai/v1", "key": EVOLINK_C7_KEY or DEEPSEEK_DIRECT_KEY, "context": 128000, "badge": "128k • EvoLink", "category": "frontier"},
 
     # Groq LPU [C1]
     {"id": "llama-3.3-70b-versatile", "name": "[C1] Llama 3.3 70B Versatile", "account_tag": "C1", "provider": "groq", "base_url": "https://api.groq.com/openai/v1", "key": GROQ_C1_KEY, "context": 128000, "badge": "128k • LPU", "category": "frontier"},
@@ -504,9 +503,13 @@ def resolve_api_key_for_model(item: Dict[str, Any]) -> Optional[str]:
     if "fireworks.ai" in base_url or prov == "fireworks":
         return get_secret(["C7_FIREWORKS_API_KEY", "FIREWORKS_API_KEY"])
 
-    # Kimi Moonshot
-    if "moonshot.cn" in base_url or prov in ("kimi", "moonshot"):
+    # Kimi Moonshot (api.moonshot.ai; legacy moonshot.cn retirado)
+    if "moonshot.ai" in base_url or "moonshot.cn" in base_url or prov in ("kimi", "moonshot"):
         return get_secret(["C7_KIMI_PLATFORM_API", "MOONSHOT_API_KEY"])
+
+    # EvoLink Gateway DeepSeek (vía DeepSeek canónica del harness)
+    if "evolink.ai" in base_url or prov == "evolink":
+        return get_secret(["C7_EVOLINK_API"])
 
     # Google AI Studio
     if "generativelanguage.googleapis.com" in base_url or prov == "google" or model_id.startswith(("gemini", "gemma")):
@@ -1291,12 +1294,13 @@ class CatalogDiscoveryWorker(CancellableThread):
                         })
                         seen_ids.add(gm["id"])
 
-            # 4. Descubrir e Incorporar DeepSeek Direct
-            effective_ds_key = self.deepseek_key or DEEPSEEK_DIRECT_KEY or DEEPSEEK_C1_KEY or DEEPSEEK_C7_KEY
+            # 4. Descubrir e Incorporar DeepSeek vía EvoLink Gateway [C7]
+            #    (api.deepseek.com directo: 402 sin saldo — harness_mode.json, 2026-10)
+            effective_ds_key = EVOLINK_C7_KEY or self.deepseek_key or DEEPSEEK_DIRECT_KEY or DEEPSEEK_C1_KEY or DEEPSEEK_C7_KEY
             if effective_ds_key and mode in ["all", "frontier", "code", "context_128k"]:
                 try:
-                    # Intento de consulta en vivo al catálogo DeepSeek
-                    ds_url = "https://api.deepseek.com/models"
+                    # Intento de consulta en vivo al catálogo DeepSeek (EvoLink)
+                    ds_url = "https://api.evolink.ai/v1/models"
                     ds_headers = {"Authorization": f"Bearer {effective_ds_key}", "User-Agent": "FloydiaAgentRadar/3.0"}
                     ds_req = urllib.request.Request(ds_url, headers=ds_headers, method="GET")
                     with urllib.request.urlopen(ds_req, timeout=8) as ds_resp:
@@ -1306,21 +1310,21 @@ class CatalogDiscoveryWorker(CancellableThread):
                             if dm_id and dm_id not in seen_ids:
                                 discovered.append({
                                     "id": dm_id,
-                                    "name": f"[Direct] DeepSeek {dm_id.replace('-', ' ').title()}",
-                                    "account_tag": "Direct",
-                                    "provider": "deepseek",
-                                    "base_url": "https://api.deepseek.com/v1",
-                                    "key": DEEPSEEK_DIRECT_KEY or effective_ds_key,
+                                    "name": f"[C7] DeepSeek {dm_id.replace('-', ' ').title()} (EvoLink)",
+                                    "account_tag": "C7",
+                                    "provider": "evolink",
+                                    "base_url": "https://api.evolink.ai/v1",
+                                    "key": EVOLINK_C7_KEY or effective_ds_key,
                                     "context": 128000,
-                                    "badge": "128k • Direct",
+                                    "badge": "128k • EvoLink",
                                     "category": "frontier",
                                     "status": "⚪ Sin probar",
                                     "latency_ms": 0,
-                                    "response_snippet": "DeepSeek API Direct"
+                                    "response_snippet": "DeepSeek vía EvoLink Gateway"
                                 })
                                 seen_ids.add(dm_id)
                 except Exception as ds_exc:
-                    errors.append(f"DeepSeek Models API: {ds_exc}")
+                    errors.append(f"EvoLink Models API: {ds_exc}")
 
                 # Incorporar la suite completa curada DeepSeek (Direct, C1, C7)
                 for cur_m in CURATED_FLEET:
@@ -1550,38 +1554,39 @@ class AIAdvisorWorker(CancellableThread):
 
         answer = None
 
-        # Intento 1: DeepSeek Chat V3 Direct
-        if DEEPSEEK_KEY:
+        # Intento 1: DeepSeek vía EvoLink Gateway [C7] (api.deepseek.com directo: 402 sin saldo)
+        evolink_key = EVOLINK_C7_KEY or DEEPSEEK_KEY
+        if not answer and evolink_key:
             try:
-                url = "https://api.deepseek.com/v1/chat/completions"
-                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {DEEPSEEK_KEY}"}
+                url = "https://api.evolink.ai/v1/chat/completions"
+                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {evolink_key}"}
                 payload = {"model": "deepseek-chat", "messages": [{"role": "user", "content": system_prompt}], "max_tokens": 1200, "temperature": 0.2}
                 req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
                 with urllib.request.urlopen(req, timeout=12) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     answer = data["choices"][0]["message"]["content"]
             except Exception as e:
-                self.log_signal.emit(f"ℹ️ DeepSeek fallback: {e}")
+                self.log_signal.emit(f"ℹ️ EvoLink DeepSeek fallback: {e}")
 
-        # Intento 2: Google AI Studio Gemini 3.7 / 3.6
-        if not answer and GOOGLE_KEY:
+        # Intento 2: NVIDIA NIM vía proxy local (rotación C1→C2→C7→C9; KIMI-GUARD v2)
+        if not answer:
             try:
-                url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GOOGLE_KEY}"}
-                payload = {"model": "gemini-3.6-flash", "messages": [{"role": "user", "content": system_prompt}], "max_tokens": 1200, "temperature": 0.2}
+                url = "http://127.0.0.1:8088/v1/chat/completions"
+                headers = {"Content-Type": "application/json", "Authorization": "Bearer floydia-suite"}
+                payload = {"model": "nvidia/nemotron-3-super-120b-a12b", "messages": [{"role": "user", "content": system_prompt}], "max_tokens": 600, "temperature": 0.2}
                 req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=12) as resp:
+                with urllib.request.urlopen(req, timeout=90) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     answer = data["choices"][0]["message"]["content"]
             except Exception as e:
-                self.log_signal.emit(f"ℹ️ Gemini fallback: {e}")
+                self.log_signal.emit(f"ℹ️ NIM proxy fallback: {e}")
 
-        # Intento 3: OpenRouter MiniMax M3
+        # Intento 3: OpenRouter Free (Nemotron 3 Super)
         if not answer and OPENROUTER_KEY:
             try:
                 url = "https://openrouter.ai/api/v1/chat/completions"
                 headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENROUTER_KEY}"}
-                payload = {"model": "minimax/minimax-m3:free", "messages": [{"role": "user", "content": system_prompt}], "max_tokens": 1200, "temperature": 0.2}
+                payload = {"model": "nvidia/nemotron-3-super-120b-a12b:free", "messages": [{"role": "user", "content": system_prompt}], "max_tokens": 1200, "temperature": 0.2}
                 req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
@@ -3274,10 +3279,10 @@ class TabRadar(QWidget):
         ("nvidia", "C9"): {"env_key": "C9_NVIDIA_API", "npm": "@ai-sdk/openai-compatible", "label": "NVIDIA NIM [C9]", "base_url": "https://integrate.api.nvidia.com/v1"},
         ("mistral", "C1"): {"env_key": "C1_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI Pro [C1]"},
         ("mistral", "C2"): {"env_key": "C2_MISTRAL", "npm": "@ai-sdk/openai-compatible", "label": "Mistral AI [C2]", "base_url": "https://api.mistral.ai/v1"},
-        ("deepseek", "DIRECT"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek Direct [Paid]", "base_url": "https://api.deepseek.com/v1"},
-        ("deepseek", "PAID"): {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek Direct [Paid]", "base_url": "https://api.deepseek.com/v1"},
-        ("deepseek", "C1"): {"env_key": "C1_DEEPSEEK", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek Direct [C1]", "base_url": "https://api.deepseek.com/v1"},
-        ("deepseek", "C7"): {"env_key": "C7_DEEPSEEK", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek Direct [C7]", "base_url": "https://api.deepseek.com/v1"},
+        ("deepseek", "DIRECT"): {"env_key": "C7_EVOLINK_API", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek vía EvoLink [C7]", "base_url": "https://api.evolink.ai/v1"},
+        ("deepseek", "PAID"): {"env_key": "C7_EVOLINK_API", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek vía EvoLink [C7]", "base_url": "https://api.evolink.ai/v1"},
+        ("deepseek", "C1"): {"env_key": "C7_EVOLINK_API", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek vía EvoLink [C7]", "base_url": "https://api.evolink.ai/v1"},
+        ("deepseek", "C7"): {"env_key": "C7_EVOLINK_API", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek vía EvoLink [C7]", "base_url": "https://api.evolink.ai/v1"},
         ("groq", "C1"): {"env_key": "C1_GROQ", "npm": "@ai-sdk/openai-compatible", "label": "Groq LPU [C1]", "base_url": "https://api.groq.com/openai/v1"},
         ("zai", "C1"): {"env_key": "C1_Z_AI", "npm": "@ai-sdk/openai-compatible", "label": "Z.AI GLM [C1]", "base_url": "https://api.z.ai/v1"},
         ("b_ai", "C7"): {"env_key": "C7_B_AI_API", "npm": "@ai-sdk/openai-compatible", "label": "B.AI GLM Hub [C7]", "base_url": "https://api.b.ai/v1"},
@@ -3309,7 +3314,7 @@ class TabRadar(QWidget):
         if prov_k == "nvidia":
             return {"env_key": "C7_NVIDIA", "npm": "@ai-sdk/openai-compatible", "label": "NVIDIA NIM [C7]", "base_url": "https://integrate.api.nvidia.com/v1"}
         if prov_k == "deepseek":
-            return {"env_key": "DEEPSEEK_API_KEY", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek Direct", "base_url": "https://api.deepseek.com/v1"}
+            return {"env_key": "C7_EVOLINK_API", "npm": "@ai-sdk/openai-compatible", "label": "DeepSeek vía EvoLink [C7]", "base_url": "https://api.evolink.ai/v1"}
         if prov_k == "mistral":
             return {"env_key": "C1_MISTRAL", "npm": "@ai-sdk/mistral", "label": "Mistral AI Pro [C1]"}
         if prov_k == "google":
@@ -3580,18 +3585,19 @@ class TabRadar(QWidget):
             if existing_mcp:
                 opencode_cfg["mcp"] = existing_mcp
 
-            os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
-            atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
-
-            # Replicar a ~/.opencode/opencode.jsonc solo en ejecuciones reales (no en tests aislados)
-            if not is_custom_opencode and os.path.exists(os.path.dirname(CANONICAL_SSOT)):
-                self._backup_file(CANONICAL_SSOT)
-                atomic_json_write(CANONICAL_SSOT, opencode_cfg)
+            # 🛡️ SSOT PROTEGIDO (2026-10-11): opencode.jsonc (y su symlink canónico
+            # ~/.opencode/opencode.jsonc) es curado a mano. La suite NUNCA lo
+            # escribe (json.dump destruiría los comentarios y os.replace rompería
+            # el symlink). Se exporta la config resultante a cache/ para revisión.
+            export_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "opencode_radar_fragment.json"
+            )
+            atomic_json_write(export_path, opencode_cfg)
 
             model_count = sum(len(p.get("models", {})) for p in final_providers.values())
-            self.log(f"✅ OpenCode sincronizado (merge defensivo): {len(final_providers)} proveedores autorizados, {model_count} modelos → {OPENCODE_CONFIG}")
+            self.log(f"🛡️ OpenCode (SSOT) no modificado; fragmento exportado a {export_path} ({len(final_providers)} proveedores, {model_count} modelos). Edita el SSOT a mano y ejecuta SCRIPTS/sync_models_all.sh.")
             if not silent:
-                QMessageBox.information(self, "OpenCode Sincronizado", f"✅ Flota sincronizada a OpenCode (merge defensivo SSOT):\n\n• {len(final_providers)} proveedores autorizados\n• {model_count} modelos\n• {OPENCODE_CONFIG}")
+                QMessageBox.information(self, "Fragmento OpenCode exportado", f"🛡️ El SSOT es manual; la suite no lo escribe.\n\nFragmento exportado a:\n{export_path}")
         except Exception as e:
             self.log(f"❌ Error sincronizando OpenCode: {e}")
             if not silent:
@@ -3691,13 +3697,18 @@ class TabRadar(QWidget):
                 existing_data["llm-pi-ai"] = {}
             existing_data["llm-pi-ai"]["providers"] = final_dsh_providers
 
-            with open(dsh_config, "w", encoding="utf-8") as f:
+            # 🛡️ ~/.dsh/settings.yaml es derivada del SSOT (sync_models_all.sh).
+            # La suite no la escribe: exporta el YAML resultante a cache/.
+            export_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "dsh_radar_fragment.yaml"
+            )
+            with open(export_path, "w", encoding="utf-8") as f:
                 yaml.dump(existing_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
             model_count = sum(len(p.get("models", [])) for p in final_dsh_providers.values())
-            self.log(f"✅ DeepSeek Harness (DSH) sincronizado (merge defensivo): {len(final_dsh_providers)} proveedores, {model_count} modelos → {dsh_config}")
+            self.log(f"🛡️ DSH no modificado (derivada del SSOT); fragmento exportado a {export_path} ({len(final_dsh_providers)} proveedores).")
             if not silent:
-                QMessageBox.information(self, "DSH Sincronizado", f"✅ Flota sincronizada a DeepSeek Harness (merge defensivo):\n\n• {len(final_dsh_providers)} proveedores\n• {model_count} modelos\n• {dsh_config}")
+                QMessageBox.information(self, "Fragmento DSH exportado", f"🛡️ ~/.dsh/settings.yaml se regenera desde el SSOT; la suite no la escribe.\n\nFragmento exportado a:\n{export_path}")
         except Exception as e:
             self.log(f"❌ Error sincronizando DSH: {e}")
             if not silent:
@@ -3803,16 +3814,19 @@ fallback_model:
   provider: openrouter
   model: minimax/minimax-m3:free
 """
-            os.makedirs(os.path.dirname(HERMES_CONFIG), exist_ok=True)
-            with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
+            # 🛡️ ~/.hermes/config.yaml y provider_models_cache.json son derivadas del
+            # SSOT (sync_models_all.sh). La suite no las escribe: exporta a cache/.
+            export_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            export_yaml_path = os.path.join(export_dir, "cache", "hermes_radar_fragment.yaml")
+            export_cache_path = os.path.join(export_dir, "cache", "hermes_radar_fragment_cache.json")
+            with open(export_yaml_path, "w", encoding="utf-8") as f:
                 f.write(hermes_yaml)
-
-            atomic_json_write(HERMES_CACHE, hermes_cache)
+            atomic_json_write(export_cache_path, hermes_cache)
 
             model_count = sum(len(c.get("models", [])) for c in hermes_cache.values())
-            self.log(f"✅ Hermes Agent sincronizado (merge defensivo): {len(hermes_cache)} proveedores, {model_count} modelos → {HERMES_CONFIG}")
+            self.log(f"🛡️ Hermes no modificado (derivada del SSOT); fragmentos exportados a cache/ ({len(hermes_cache)} proveedores, {model_count} modelos).")
             if not silent:
-                QMessageBox.information(self, "Hermes Sincronizado", f"✅ Flota sincronizada a Hermes (merge defensivo):\n\n• {len(hermes_cache)} proveedores\n• {model_count} modelos\n• {HERMES_CONFIG}")
+                QMessageBox.information(self, "Fragmento Hermes exportado", f"🛡️ ~/.hermes/config.yaml se regenera desde el SSOT; la suite no la escribe.\n\nFragmento exportado a:\n{export_yaml_path}")
         except Exception as e:
             self.log(f"❌ Error sincronizando Hermes: {e}")
             if not silent:

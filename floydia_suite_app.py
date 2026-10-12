@@ -21,18 +21,18 @@ SUITE_DIR = os.path.dirname(os.path.abspath(__file__))
 if SUITE_DIR not in sys.path:
     sys.path.insert(0, SUITE_DIR)
 
-from PyQt6.QtCore import Qt, QSize, QPoint, QRect, QByteArray, QTimer
-from PyQt6.QtGui import QIcon, QFont, QPixmap, QCloseEvent, QGuiApplication
+from PyQt6.QtCore import Qt, QSize, QPoint, QRect, QByteArray, QTimer, QEvent
+from PyQt6.QtGui import QIcon, QFont, QPixmap, QCloseEvent, QGuiApplication, QAction
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QStackedWidget, QFrame, QStatusBar,
-    QSizePolicy
+    QSizePolicy, QSystemTrayIcon, QMenu
 )
 
 from theme import (
     FLOYDIA_SUITE_QSS, ICON_APP, SIDEBAR_LOGO, COLOR_PRIMARY_CYAN,
     COLOR_SECONDARY_BLUE, COLOR_BG_DARK, COLOR_BORDER, COLOR_TEXT_MAIN,
-    COLOR_TEXT_MUTED
+    COLOR_TEXT_MUTED, load_smooth_pixmap
 )
 from modules.state_store import atomic_read_json, atomic_write_json, utc_now_iso
 
@@ -86,6 +86,7 @@ class FloydIASuiteApp(QMainWindow):
         ]
         self._pending_module_states: Dict[str, Any] = {}
         self.init_ui(initial_tab)
+        self.init_tray()
         self.restore_session_state(initial_tab)
 
     def init_ui(self, initial_tab: int):
@@ -103,24 +104,22 @@ class FloydIASuiteApp(QMainWindow):
         sidebar_lay.setContentsMargins(14, 16, 14, 16)
         sidebar_lay.setSpacing(8)
 
-        # Brand / Logo Header — Isotipo grande, nítido y legible
+        # Brand / Logo Header — Isotipo grande, nítido y legible (FLOYDIA V6)
         brand_container = QFrame()
         brand_container.setStyleSheet("background: transparent; border: none;")
         brand_lay = QHBoxLayout(brand_container)
         brand_lay.setContentsMargins(2, 4, 2, 8)
         brand_lay.setSpacing(12)
 
-        # Cargar icono de FloydIA grande (52x52)
-        suite_icon_path = os.path.join(SUITE_DIR, "assets", "icon.png")
+        # Cargar isotipo de cabecera del sidebar (assets/logo.png con SmoothTransformation)
+        logo_path = SIDEBAR_LOGO or os.path.join(SUITE_DIR, "assets", "logo.png")
+        fallback_icon = ICON_APP or os.path.join(SUITE_DIR, "assets", "icon.png")
         lbl_logo_img = QLabel()
-        if os.path.exists(suite_icon_path):
-            pix = QPixmap(suite_icon_path)
-            if not pix.isNull():
-                lbl_logo_img.setPixmap(pix.scaled(52, 52, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        elif SIDEBAR_LOGO and os.path.exists(SIDEBAR_LOGO):
-            pix = QPixmap(SIDEBAR_LOGO)
-            if not pix.isNull():
-                lbl_logo_img.setPixmap(pix.scaled(52, 52, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        pix = load_smooth_pixmap(logo_path, 52, 52)
+        if pix.isNull():
+            pix = load_smooth_pixmap(fallback_icon, 52, 52)
+        if not pix.isNull():
+            lbl_logo_img.setPixmap(pix)
         lbl_logo_img.setFixedSize(54, 54)
         lbl_logo_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_logo_img.setStyleSheet("background: transparent; border: none;")
@@ -454,6 +453,86 @@ class FloydIASuiteApp(QMainWindow):
                 state["modules"][key] = self._pending_module_states[key]
         return state
 
+    def init_tray(self):
+        """Inicializa el soporte de System Tray con menú contextual y reactividad a clics."""
+        self.tray_icon = QSystemTrayIcon(self)
+        app_icon = QIcon(ICON_APP) if (ICON_APP and os.path.exists(ICON_APP)) else self.windowIcon()
+        self.tray_icon.setIcon(app_icon)
+        self.tray_icon.setToolTip("FloydIA Suite 2.0 — Centro Unificado de Comando")
+
+        # Menú contextual en el icono del tray
+        tray_menu = QMenu()
+        tray_menu.setStyleSheet(FLOYDIA_SUITE_QSS)
+
+        # 1. Mostrar / Ocultar
+        self.action_toggle_window = QAction("Mostrar / Ocultar", self)
+        self.action_toggle_window.triggered.connect(self.toggle_window_visibility)
+        tray_menu.addAction(self.action_toggle_window)
+
+        # 2. Ejecutar Limpieza Rápida
+        self.action_quick_clean = QAction("Ejecutar Limpieza Rápida", self)
+        self.action_quick_clean.triggered.connect(self.trigger_quick_clean_from_tray)
+        tray_menu.addAction(self.action_quick_clean)
+
+        tray_menu.addSeparator()
+
+        # 3. Salir
+        self.action_exit = QAction("Salir", self)
+        self.action_exit.triggered.connect(self.close)
+        tray_menu.addAction(self.action_exit)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray_icon.show()
+        else:
+            logger.warning("System Tray no disponible en este entorno.")
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason):
+        """Al hacer clic izquierdo en el icono del tray (Trigger), restaurar y enfocar la ventana."""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.restore_and_focus()
+
+    def restore_and_focus(self):
+        """Restaura la ventana y asegura el foco de primer plano."""
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
+        self.activateWindow()
+        self.raise_()
+
+    def toggle_window_visibility(self):
+        """Alterna entre mostrar y ocultar la ventana desde el menú contextual del tray."""
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.restore_and_focus()
+
+    def trigger_quick_clean_from_tray(self):
+        """Ejecuta la limpieza rápida y emite notificación en el tray."""
+        self.quick_clean_action()
+        if hasattr(self, "tray_icon") and self.tray_icon and self.tray_icon.isVisible():
+            self.tray_icon.showMessage(
+                "FloydIA Suite 2.0",
+                "🧹 Limpieza SRE rápida iniciada...",
+                QSystemTrayIcon.MessageIcon.Information,
+                2500
+            )
+
+    def changeEvent(self, event: QEvent):
+        """
+        Intercepta cambios de estado de ventana para ocultarla al minimizar,
+        haciendo que viva en el área de notificación (System Tray).
+        """
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.windowState() & Qt.WindowState.WindowMinimized:
+                event.accept()
+                QTimer.singleShot(0, self.hide)
+                return
+        super().changeEvent(event)
+
     def closeEvent(self, event: QCloseEvent):
         """
         Apagado ordenado y determinista en 3 fases:
@@ -461,6 +540,10 @@ class FloydIASuiteApp(QMainWindow):
           FASE 2: Recopilar estado de sesión de UI y módulos.
           FASE 3: Persistencia atómica de session_state.json.
         """
+        # Ocultar icono del System Tray para evitar iconos huérfanos en panel
+        if hasattr(self, "tray_icon") and self.tray_icon:
+            self.tray_icon.hide()
+
         if hasattr(self, "status_bar") and self.status_bar:
             self.status_bar.showMessage("🛑 Guardando estado y cerrando sesión limpia...")
 

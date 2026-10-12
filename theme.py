@@ -6,7 +6,8 @@ FLOYDIA SUITE 2.0 — Sistema de Diseño, Paleta y Tema QSS (FLOYDIA V6)
 import os
 import threading
 from typing import Optional
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QThread, Qt
+from PyQt6.QtGui import QPixmap
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(PROJECT_ROOT, "assets")
@@ -15,8 +16,8 @@ def resolve_app_icon() -> str:
     """Busca y retorna la ruta del icono de la aplicación con prioridad visual."""
     user_icons = os.path.expanduser("~/.local/share/icons")
     candidates = [
-        os.path.join(ASSETS_DIR, "icon.svg"),
         os.path.join(ASSETS_DIR, "icon.png"),
+        os.path.join(ASSETS_DIR, "icon.svg"),
         os.path.join(ASSETS_DIR, "logo.png"),
         os.path.join(user_icons, "floydia_icon.png"),
         os.path.join(user_icons, "floydia_suite.png")
@@ -40,17 +41,30 @@ def resolve_sidebar_logo() -> Optional[str]:
             return c
     return None
 
+def load_smooth_pixmap(path: str, width: int, height: int) -> QPixmap:
+    """Carga un pixmap y lo escala nítidamente con SmoothTransformation preservando aspect ratio."""
+    if not path or not os.path.exists(path):
+        return QPixmap()
+    pix = QPixmap(path)
+    if pix.isNull():
+        return pix
+    return pix.scaled(
+        width, height,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation
+    )
+
 ICON_APP = resolve_app_icon()
 SIDEBAR_LOGO = resolve_sidebar_logo()
 
 # Colores de Marca FLOYDIA V6 (Contrato Oficial Unificado)
-COLOR_BG_DARK = "#050911"
+COLOR_BG_DARK = "#0D1117"       # Azul profundo FLOYDIA V6
 COLOR_BG_CARD = "#0C1322"
 COLOR_BG_CARD_HOVER = "#101C30"
 COLOR_BG_ACTIVE = "#10283D"
 COLOR_BORDER = "#1E3A5F"
-COLOR_BORDER_FOCUS = "#00F5D4"
-COLOR_PRIMARY_CYAN = "#00F5D4"
+COLOR_BORDER_FOCUS = "#00E5FF"
+COLOR_PRIMARY_CYAN = "#00E5FF"   # Cian Neón FLOYDIA V6
 COLOR_PRIMARY_HOVER = "#20FFE0"
 COLOR_SECONDARY_BLUE = "#00BBF9"
 COLOR_TEXT_MAIN = "#F5F8F7"

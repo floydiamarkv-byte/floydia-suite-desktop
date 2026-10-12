@@ -17,6 +17,7 @@ Garantías:
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import glob
 import json
@@ -24,6 +25,7 @@ import logging
 import os
 import re
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -63,6 +65,90 @@ def _purge_stale_quarantines(path: str) -> None:
                 pass
     except Exception:
         pass
+
+
+# ── Guardia de rutas protegidas (SSOT de modelos y configs derivadas) ────────
+# Política del harness (2026-10): ~/.opencode/opencode.jsonc es el SSOT curado a
+# mano; ~/.hermes/*, ~/.dsh/* y SCRIPTS/dsh-settings.yaml son derivadas que SOLO
+# regenera SCRIPTS/sync_models_all.sh. La suite las lee, pero NUNCA las escribe
+# salvo vía explícita write_harness_owned(reason=...).
+# Se resuelve con realpath (symlinks: ~/.opencode → ~/.config/opencode) y se
+# recalcula en cada llamada para respetar HOME aislado en tests.
+class ProtectedPathError(PermissionError):
+    """Intento de escritura sobre el SSOT del harness o una config derivada."""
+
+
+_guard_state = threading.local()
+
+
+@contextlib.contextmanager
+def _harness_write_grant(reason: str):
+    prev = getattr(_guard_state, "reason", None)
+    _guard_state.reason = reason
+    try:
+        yield
+    finally:
+        _guard_state.reason = prev
+
+
+def _protected_real_paths() -> set:
+    home = os.path.expanduser("~")
+    candidates = (
+        os.path.join(home, ".opencode", "opencode.jsonc"),
+        os.path.join(home, ".config", "opencode", "opencode.jsonc"),
+        os.path.join(home, ".hermes", "config.yaml"),
+        os.path.join(home, ".hermes", "provider_models_cache.json"),
+        os.path.join(home, ".dsh", "settings.yaml"),
+    )
+    return {os.path.realpath(p) for p in candidates}
+
+
+def is_protected_path(path) -> bool:
+    """True si `path` (tras resolver symlinks) es el SSOT del harness o derivada."""
+    try:
+        text = os.fsdecode(path) if not isinstance(path, str) else path
+        if not text:
+            return False
+        real = os.path.realpath(os.path.abspath(os.path.expanduser(text)))
+    except (OSError, ValueError):
+        return False
+    if real in _protected_real_paths():
+        return True
+    # Config DSH derivada adicional (cualquier cosa bajo ~/.dsh)
+    if real.startswith(os.path.realpath(os.path.expanduser("~/.dsh")) + os.sep):
+        return True
+    return real.endswith(os.sep + os.path.join("SCRIPTS", "dsh-settings.yaml"))
+
+
+def assert_not_protected(path: str) -> None:
+    """Punto de control previo a toda escritura. Lanza ProtectedPathError."""
+    if getattr(_guard_state, "reason", None):
+        logger.warning(
+            "⚠️ ESCRITURA AUTORIZADA sobre config del harness: %s — motivo: %s",
+            os.path.expanduser(os.fsdecode(path)), getattr(_guard_state, "reason"),
+        )
+        return
+    if not is_protected_path(path):
+        return
+    logger.error("Escritura bloqueada sobre ruta protegida: %s", path)
+    raise ProtectedPathError(
+        f"Ruta protegida (SSOT/derivada del harness): {path}. "
+        "Cura ~/.opencode/opencode.jsonc a mano y ejecuta SCRIPTS/sync_models_all.sh."
+    )
+
+
+def write_harness_owned(path: str, data, *, reason: str) -> None:
+    """
+    ÚNICA vía autorizada para escribir una config del harness desde la suite.
+
+    Exige `reason` no vacío para que cada llamada sea auditable con
+    grep -n "write_harness_owned". Reservar a casos con decisión explícita del
+    operador; la regla por defecto es NO escribir.
+    """
+    if not isinstance(reason, str) or not reason.strip():
+        raise ProtectedPathError("write_harness_owned() exige un 'reason' no vacío.")
+    with _harness_write_grant(reason.strip()):
+        atomic_write_json(path, data)
 
 
 # Regex: captura strings JSON (grupo 1) para preservarlos, y elimina // y /* */.
@@ -139,6 +225,7 @@ def atomic_write_text(path: str, text: str, mode: int = 0o644) -> None:
     Escritura atómica de texto plano (YAML, etc.): temporal en el mismo directorio,
     fsync, os.replace y flock con timeout como defensa en profundidad.
     """
+    assert_not_protected(path)
     directory = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(directory, exist_ok=True)
     lock_path = f"{path}.lock"
@@ -199,6 +286,7 @@ def atomic_write_json(path: str, data: Dict[str, Any], mode: int = 0o600) -> Non
     - Limpieza automática de temporales huérfanos ante cualquier error.
     - mode 0o600 por defecto para evitar fugas de secretos locales.
     """
+    assert_not_protected(path)
     directory = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(directory, exist_ok=True)
     lock_path = f"{path}.lock"
@@ -306,7 +394,12 @@ def atomic_read_json(
         logger.warning("Fallo transitorio de I/O al leer %s (archivo preservado intacto): %s", path, exc)
         return default
     except (json.JSONDecodeError, ValueError) as exc:
-        # Corrupción sintáctica real verificada: mover a cuarentena
+        # Corrupción sintáctica real verificada: mover a cuarentena.
+        # NUNCA sobre rutas protegidas: un JSONC con comentarios leído con
+        # atomic_read_json se vería "corrupto" y se renombraría el SSOT.
+        if is_protected_path(path):
+            logger.error("JSON no válido en ruta protegida %s (%s); NO se mueve ni se modifica.", path, exc)
+            return default
         _purge_stale_quarantines(path)
         quarantine = f"{path}.corrupt-{utc_now_iso().replace(':', '')}"
         try:

@@ -139,6 +139,26 @@ def find_listener(port: int) -> List[psutil.Process]:
     return listeners
 
 
+def inspect_kernel_io_buffers() -> Tuple[float, float, bool]:
+    """
+    Inspecciona la carga previa de buffers sucios en el kernel desde /proc/meminfo.
+    Retorna: (dirty_mb, writeback_mb, is_heavy)
+    """
+    dirty_mb = 0.0
+    writeback_mb = 0.0
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("Dirty:"):
+                    dirty_mb = int(line.split()[1]) / 1024.0
+                elif line.startswith("Writeback:"):
+                    writeback_mb = int(line.split()[1]) / 1024.0
+    except Exception:
+        pass
+    is_heavy = (dirty_mb + writeback_mb) > 20.0
+    return dirty_mb, writeback_mb, is_heavy
+
+
 class MemoryReader:
     @staticmethod
     def get_stats() -> dict:
@@ -227,10 +247,22 @@ class OptimizerWorker(CancellableThread):
             if task == "drop_caches":
                 self.log_signal.emit("🧹 [1/5] Purgando PageCache, Dentries e Inodos (drop_caches)...")
                 try:
-                    subprocess.run(["sync"], check=False, timeout=5)
+                    # Comprobación previa de carga de I/O antes de drop_caches
+                    dirty_mb, wb_mb, is_heavy = inspect_kernel_io_buffers()
+                    if is_heavy:
+                        self.log_signal.emit(
+                            f"  ⏳ Carga de I/O pesada detectada: {dirty_mb:.1f} MB en buffers sucios (Dirty) "
+                            f"+ {wb_mb:.1f} MB en Writeback. El kernel está vaciando buffers pesados..."
+                        )
+                    else:
+                        self.log_signal.emit(
+                            f"  📊 Verificación previa de I/O: {dirty_mb:.1f} MB Dirty, {wb_mb:.1f} MB Writeback (carga de buffers estable)."
+                        )
+
+                    subprocess.run(["sync"], check=False, timeout=10)
                     res = subprocess.run(
                         ["sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"],
-                        capture_output=True, text=True, timeout=4, check=False
+                        capture_output=True, text=True, timeout=10, check=False
                     )
                     if res.returncode == 0:
                         self.log_signal.emit("  ✅ Cachés de kernel purgadas con éxito (drop_caches 3).")
@@ -239,7 +271,7 @@ class OptimizerWorker(CancellableThread):
                         self.log_signal.emit("  ℹ️ Sync ejecutado (elevación omitida o no requerida).")
                         log_sre_action("drop_caches", "sync_only", "notice", detail=res.stderr.strip())
                 except subprocess.TimeoutExpired:
-                    self.log_signal.emit("  ⚠️ drop_caches excedió el timeout de 4s.")
+                    self.log_signal.emit("  ⚠️ drop_caches excedió el timeout de 10s.")
                     log_sre_action("drop_caches", "timeout", "warning")
                 except Exception as e:
                     self.log_signal.emit(f"  ℹ️ Sync ejecutado: {e}")

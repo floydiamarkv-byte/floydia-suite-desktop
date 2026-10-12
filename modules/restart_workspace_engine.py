@@ -306,12 +306,42 @@ def execute_reboot_node(
             log(f"Aviso TP-Link: {e}. Se continúa con la secuencia.", "WARN")
             return True, "Reinicio TP-Link emitido"
 
+    # 4.5 Tablet Android vía ADB over network (SM-T550)
+    elif n_type == "adb_android":
+        adb_port = node.get("check_port") or 5555
+        target = f"{ip}:{adb_port}"
+        try:
+            log(f"Conectando vía ADB a {n_name} ({target})...", "INFO")
+            res = subprocess.run(["adb", "connect", target], capture_output=True, text=True, timeout=12, env=clean_env)
+            if "connected" not in (res.stdout + res.stderr).lower():
+                err_msg = (res.stdout + res.stderr).strip() or "sin respuesta de adb connect"
+                log(f"Fallo adb connect hacia {target}: {err_msg}", "ERROR")
+                return False, err_msg
+            log(f"Sesión ADB establecida con {n_name}. Enviando 'adb reboot'...", "INFO")
+            subprocess.run(["adb", "-s", target, "shell", "input", "keyevent", "KEYCODE_WAKEUP"], capture_output=True, timeout=6, env=clean_env)
+            res = subprocess.run(["adb", "-s", target, "reboot"], capture_output=True, text=True, timeout=12, env=clean_env)
+            out_text = (res.stdout + res.stderr).strip()
+            if res.returncode == 0 or "error" not in out_text.lower():
+                log(f"Orden de reinicio enviada a {n_name} vía ADB.", "SUCCESS")
+                return True, f"Reinicio ADB enviado a {n_name}"
+            log(f"Error en adb reboot hacia {n_name}: {out_text or res.returncode}", "ERROR")
+            return False, out_text or f"Código de retorno {res.returncode}"
+        except subprocess.TimeoutExpired:
+            log(f"La conexión ADB se cerró (reinicio en curso en {n_name}).", "SUCCESS")
+            return True, f"Reinicio enviado a {n_name} (conexión cerrada)"
+        except FileNotFoundError:
+            log("Error: binario 'adb' no encontrado en el host ejecutor.", "ERROR")
+            return False, "adb no disponible en el host"
+        except Exception as e:
+            log(f"Error reiniciando {n_name} por ADB: {e}", "ERROR")
+            return False, str(e)
+
     # 5. Localhost HP15 (Debian 13 SysVinit / Sudo NOPASSWD)
     elif n_type == "localhost":
         log("🚨 PREPARANDO REINICIO LOCAL DEL HOST HP15...", "WARN")
         log("Ejecutando reinicio determinista de HP15 (sin bloqueos de red ni pantallas colgadas)...", "INFO")
         try:
-            cmd = ["sudo", "/usr/local/bin/hp15-safe-reboot.sh"]
+            cmd = ["sudo", "-n", "/usr/local/bin/hp15-safe-reboot.sh"]
             subprocess.Popen(cmd, env=clean_env)
             return True, "Reinicio limpio de HP15 emitido"
         except Exception as e:

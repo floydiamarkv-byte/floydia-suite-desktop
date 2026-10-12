@@ -36,10 +36,10 @@ from theme import (
 )
 
 
-def check_sudo_active(timeout_sec: float = 2.0) -> bool:
-    """Comprueba de forma no bloqueante y resiliente si sudo está habilitado sin solicitar contraseña."""
+def check_sudo_active() -> bool:
+    """Comprueba de forma no bloqueante si sudo está habilitado sin solicitar contraseña."""
     try:
-        res = subprocess.run(["sudo", "-n", "true"], capture_output=True, check=False, timeout=timeout_sec)
+        res = subprocess.run(["sudo", "-n", "true"], capture_output=True, check=False)
         return res.returncode == 0
     except Exception:
         return False

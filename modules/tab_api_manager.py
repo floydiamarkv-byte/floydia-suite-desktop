@@ -56,14 +56,15 @@ OPENCODE_CONFIG = os.environ.get("OPENCODE_CONFIG_PATH", os.path.expanduser("~/.
 OPENCODE_SSOT = os.path.expanduser("~/.opencode/opencode.jsonc")
 HERMES_CONFIG = os.environ.get("HERMES_CONFIG_PATH", os.path.expanduser("~/.hermes/config.yaml"))
 HERMES_CACHE = os.path.expanduser("~/.hermes/provider_models_cache.json")
-DSH_CONFIG = os.path.join(WORKSPACE_ROOT, ".dsh", "settings.yaml")
+DSH_CONFIG = os.path.expanduser("~/.dsh/settings.yaml")  # Derivada del SSOT (solo lectura; la escribe sync_models_all.sh)
 SYNC_MODELS_ALL_SCRIPT = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "sync_models_all.sh")
 SYNC_REMOTE_SCRIPT = os.path.join(CACHE_DIR, "sync_remote_node.sh")
 EXPORT_REMOTE_KEYS_SCRIPT = os.path.join(CACHE_DIR, "export_remote_keys.sh")
-# HP45 purgado: se desactiva la sincronización hacia la laptop secundaria
+# HP45 purgado: réplica automática desactivada (#vetado: orden humana expresa requerida)
 SYNC_HP45_ENABLED = False
-SYNC_HP45_SCRIPT = ""
-EXPORT_HP45_KEYS_SCRIPT = ""
+SYNC_HP45_SCRIPT = SYNC_REMOTE_SCRIPT
+EXPORT_HP45_KEYS_SCRIPT = EXPORT_REMOTE_KEYS_SCRIPT
+
 
 
 def _ssot_provider_models(provider: str) -> list:
@@ -74,10 +75,11 @@ def _ssot_provider_models(provider: str) -> list:
     refleje el catálogo curado en el SSOT en lugar del embebido en la app.
     """
     try:
-        with open(OPENCODE_SSOT, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
+        from modules.state_store import load_jsonc
+        cfg = load_jsonc(OPENCODE_SSOT)
     except Exception:
         return []
+    cfg = cfg or {}
     ids = set()
     for pid, pcfg in (cfg.get("provider") or {}).items():
         if pid == provider or pid.startswith(provider + "_"):
@@ -134,7 +136,13 @@ from modules.state_store import atomic_write_json as atomic_json_write, atomic_r
 DELETED_IDS_FILE = os.path.join(CACHE_DIR, "deleted_api_ids.json")
 
 
-# Flota Inicial Canónica Multi-Cuenta [C1..C8]
+# Versión de siembra del catálogo por defecto. Al subirla, las entradas
+# cacheadas de custom_apis.json se migran (campos gestionados) sin tocar
+# las personalizaciones del usuario que no sean parte del seed.
+APIS_SEED_VERSION = 3
+_APIS_SEED_MANAGED_FIELDS = ("provider", "account_tag", "env_key", "base_url",
+                             "test_model", "auth_type", "enabled", "notes")
+
 DEFAULT_APIS: List[Dict[str, Any]] = [
     # ── Google AI Studio [C1 Exclusivo: eliutec.aux.ia1@gmail.com — ToS Anti-Baneo] ──
     {
@@ -145,10 +153,10 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "env_key": "C1_GOOGLE_AISTUDIO",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "api_key": "",
-        "test_model": "gemini-3.7-flash",
+        "test_model": "gemini-3.8-flash",
         "auth_type": "Bearer",
-        "enabled": True,
-        "notes": "Cuenta Principal Oficial: Gemini 3.7 Flash, 3.6, 3.5 y Gemma 4 (1M tokens). Blindaje ToS activo."
+        "enabled": False,
+        "notes": "RETIRADO del SSOT (harness_mode: 5/6 claves 403). El uso de Gemini es vía Antigravity CLI (agy), no por API directa."
     },
 
     # ── NVIDIA NIM Multi-Cuenta (C1, C2, C7) ──
@@ -173,10 +181,10 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "env_key": "C1_NVIDIA",
         "base_url": "https://integrate.api.nvidia.com/v1",
         "api_key": "",
-        "test_model": "deepseek-ai/deepseek-v4-flash-0731",
+        "test_model": "nvidia/nemotron-3-super-120b-a12b",
         "auth_type": "Bearer",
         "enabled": True,
-        "notes": "Cuenta C1 NVIDIA NIM para DeepSeek V4 e inferencia rápida."
+        "notes": "Cuenta C1 NVIDIA NIM: Nemotron Super y Kimi K3 (V4 Flash/Pro EOL 410 en NIM 2026-09). El harness y DSH consumen NIM vía proxy local 127.0.0.1:8088 (rotación C1→C2→C7→C9); esta prueba valida la clave cruda."
     },
     {
         "id": "nvidia_c2",
@@ -202,10 +210,25 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "test_model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "auth_type": "Bearer",
         "enabled": True,
-        "notes": "Cuenta C9 NVIDIA NIM: Nemotron 3 Nano Omni y DeepSeek V4."
+        "notes": "Cuenta C9 NVIDIA NIM: Nemotron 3 Nano Omni/Super y Kimi K3 (DeepSeek V4 EOL 410 en NIM)."
     },
 
-    # ── DeepSeek Direct Multi-Cuenta (C1..C7) ──
+    # ── EvoLink Gateway DeepSeek [C7] (vía DeepSeek canónica actual) ──
+    {
+        "id": "evolink_c7",
+        "name": "EvoLink DeepSeek Gateway [C7]",
+        "provider": "evolink",
+        "account_tag": "C7",
+        "env_key": "C7_EVOLINK_API",
+        "base_url": "https://api.evolink.ai/v1",
+        "api_key": "",
+        "test_model": "deepseek-chat",
+        "auth_type": "Bearer",
+        "enabled": True,
+        "notes": "Vía DeepSeek operativa actual del harness (deepseek-chat / deepseek-reasoner). Modelo C1/C3 del dispatcher."
+    },
+
+    # ── DeepSeek Direct Multi-Cuenta (SIN SALDO — 402 permanente, desactivado) ──
     {
         "id": "deepseek_direct",
         "name": "DeepSeek Direct API [Paid]",
@@ -216,8 +239,8 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "api_key": "",
         "test_model": "deepseek-chat",
         "auth_type": "Bearer",
-        "enabled": True,
-        "notes": "Acceso oficial directo a DeepSeek V3 y DeepSeek R1."
+        "enabled": False,
+        "notes": "SIN SALDO (402 permanente). Vía DeepSeek viva: EvoLink [C7]. Conservada solo como registro."
     },
     {
         "id": "deepseek_c1",
@@ -229,8 +252,8 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "api_key": "",
         "test_model": "deepseek-chat",
         "auth_type": "Bearer",
-        "enabled": True,
-        "notes": "Cuenta C1 DeepSeek: Inferencia y razonamiento R1."
+        "enabled": False,
+        "notes": "SIN SALDO (402 permanente). Vía DeepSeek viva: EvoLink [C7]."
     },
     {
         "id": "deepseek_c7",
@@ -242,8 +265,8 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "api_key": "",
         "test_model": "deepseek-chat",
         "auth_type": "Bearer",
-        "enabled": True,
-        "notes": "Cuenta C7 DeepSeek dedicada para OpenCode / Hermes."
+        "enabled": False,
+        "notes": "SIN SALDO (402 permanente). Vía DeepSeek viva: EvoLink [C7]."
     },
 
     # ── Mistral AI Multi-Cuenta (C1..C6) ──
@@ -326,10 +349,10 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "env_key": "C1_Z_AI",
         "base_url": "https://api.z.ai/v1",
         "api_key": "",
-        "test_model": "glm-4-plus",
+        "test_model": "glm-5.3-flash",
         "auth_type": "Bearer",
         "enabled": False,
-        "notes": "Inferencia nativa modelos GLM 4 / GLM 5."
+        "notes": "Z.AI directo fuera del SSOT; el equivalente vivo del harness es zen_c1 (ZenMux): z-ai/glm-5.3-flash, qwen/qwen3.8-flash."
     },
 
     # ── Homelab / Local / Direct ──
@@ -369,10 +392,10 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "env_key": "C7_CLOUDFLARE",
         "base_url": "https://api.cloudflare.com/client/v4/user/tokens/verify",
         "api_key": "",
-        "test_model": "@cf/qwen/qwen3-30b-a3b-fp8",
+        "test_model": "@cf/zai-org/glm-4.7-flash",
         "auth_type": "Bearer",
         "enabled": True,
-        "notes": "Token de inferencia Cloudflare Workers AI verificado y activo."
+        "notes": "Token de inferencia Cloudflare Workers AI (verify pasivo). Inferencia: https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1 (GLM 4.7 Flash, Kimi K2.7 Code, Llama 3.3 70B FP8)."
     },
     {
         "id": "tokenrouter_c7",
@@ -497,12 +520,12 @@ DEFAULT_APIS: List[Dict[str, Any]] = [
         "provider": "kimi",
         "account_tag": "C7",
         "env_key": "C7_KIMI_PLATFORM_API",
-        "base_url": "https://api.moonshot.cn/v1",
+        "base_url": "https://api.moonshot.ai/v1",
         "api_key": "",
-        "test_model": "moonshot-v1-8k",
+        "test_model": "kimi-k3",
         "auth_type": "Bearer",
         "enabled": True,
-        "notes": "Plataforma oficial Moonshot AI (Kimi K3)."
+        "notes": "KEY PROTEGIDA (consumo de saldo): la suite solo hace sondas pasivas GET /models; JAMÁS chat. El uso de Kimi K3 es vía NVIDIA NIM/proxy. Si algún día se permite chat: temperature=1 obligatoria."
     },
     {
         "id": "venice_c7",
@@ -642,6 +665,39 @@ class ApiPingWorker(CancellableThread):
                 self.api_tested.emit(api_id, res)
                 continue
 
+            # Sonda PASIVA para Kimi/Moonshot Platform: key protegida (consume saldo real).
+            # Política harness (model_router.md): JAMÁS chat activo; solo GET /models.
+            if prov == "kimi" or "moonshot" in base_url:
+                url = f"{base_url}/models"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "User-Agent": "FloydiaSuite/2.0-ApiManager"
+                }
+                t0 = time.monotonic()
+                try:
+                    req = urllib.request.Request(url, headers=headers, method="GET")
+                    with urllib.request.urlopen(req, timeout=12) as resp:
+                        lat = int((time.monotonic() - t0) * 1000)
+                        if resp.status == 200:
+                            res = {"status": "200_OK", "latency_ms": lat, "message": f"Sonda pasiva OK (GET /models, {lat}ms)"}
+                            self.log_signal.emit(f"  🟢 {name}: 200 OK sonda pasiva ({lat} ms)")
+                        else:
+                            res = {"status": f"HTTP_{resp.status}", "latency_ms": lat, "message": f"Status {resp.status}"}
+                            self.log_signal.emit(f"  🟡 {name}: HTTP {resp.status} ({lat} ms)")
+                except urllib.error.HTTPError as e:
+                    lat = int((time.monotonic() - t0) * 1000)
+                    if e.code in (401, 403):
+                        res = {"status": "AUTH_ERR", "latency_ms": lat, "message": f"Clave Inválida / Error {e.code}"}
+                    else:
+                        res = {"status": f"HTTP_{e.code}", "latency_ms": lat, "message": f"HTTP {e.code}"}
+                    self.log_signal.emit(f"  🔴 {name}: {res['message']} ({lat} ms)")
+                except Exception as e:
+                    lat = int((time.monotonic() - t0) * 1000)
+                    res = {"status": "TIMEOUT", "latency_ms": lat, "message": str(e)[:35]}
+                    self.log_signal.emit(f"  ⚠️ {name}: {res['message']}")
+                self.api_tested.emit(api_id, res)
+                continue
+
             url = f"{base_url}/chat/completions"
             headers = {
                 "Content-Type": "application/json",
@@ -727,304 +783,52 @@ class PropagateAllWorker(CancellableThread):
         self.log_signal.emit("⚡ Iniciando propagación unificada 1-Clic hacia todos los agentes del ecosistema...")
         results = {}
 
-        # 1. OpenCode (~/.config/opencode/opencode.jsonc)
+        # 1. OpenCode (~/.config/opencode/opencode.jsonc) — SSOT PROTEGIDO (2026-10-11):
+        #    opencode.jsonc es la Fuente Única de Verdad curada a mano (SCRIPTS/sync_models_all.sh).
+        #    La suite NUNCA la sobrescribe: antes lo hacía con un catálogo embebido obsoleto
+        #    (Google-first, DeepSeek directo, NIM directo sin proxy), borrando providers activos
+        #    del harness (evolink, amazon-bedrock, zen_c1) y restaurando defaults retirados.
         try:
-            self._backup_file(OPENCODE_CONFIG)
-            existing_mcp = {}
             if os.path.exists(OPENCODE_CONFIG):
                 try:
                     from modules.state_store import load_jsonc
-                    old_json = load_jsonc(OPENCODE_CONFIG)
-                    existing_mcp = old_json.get("mcp", {})
-                except Exception as parse_exc:
-                    # Regla de seguridad (BUG-DATA-01): si opencode.jsonc no es parseable
-                    # (p.ej. JSONC con comentarios corruptos), NO reconstruir el archivo:
-                    # se perdería el bloque "mcp" del usuario. Abortar el target OpenCode.
-                    raise RuntimeError(
-                        f"opencode.jsonc no parseable ({parse_exc}); se omite para preservar la configuración"
+                    ssot_now = load_jsonc(OPENCODE_CONFIG)
+                    en = ssot_now.get("enabled_providers", [])
+                    results["OpenCode"] = True
+                    self.log_signal.emit(
+                        f"  🛡️ OpenCode: SSOT protegido, sin escritura ({len(en)} providers habilitados: {', '.join(en)}). "
+                        "Para cambiar modelos cura a mano ~/.opencode/opencode.jsonc."
                     )
-
-            opencode_providers = {}
-            for api in self.apis:
-                if not api.get("enabled", True):
-                    continue
-                prov = api.get("provider", "custom")
-                acc_tag = api.get("account_tag", "C1")
-                env_k = api.get("env_key", "")
-                base_u = api.get("base_url", "")
-                test_m = api.get("test_model", "default")
-
-                # Identificador único de proveedor en OpenCode
-                prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
-
-                npm_pkg = "@ai-sdk/openai-compatible"
-                if prov == "google":
-                    npm_pkg = "@ai-sdk/google"
-                elif prov == "mistral" and acc_tag in ("C1", "Principal", ""):
-                    npm_pkg = "@ai-sdk/mistral"
-
-                opts = {}
-                if base_u:
-                    opts["baseURL"] = base_u
-                if env_k:
-                    opts["apiKey"] = f"{{env:{env_k}}}"
-
-                badge = get_account_badge_label(acc_tag)
-                
-                # Construir mapa de modelos enriquecido por proveedor
-                if prov == "google":
-                    models_dict = {
-                        "gemini-3.7-flash": {"name": f"{badge} Gemini 3.7 Flash Reasoning"},
-                        "gemini-3.6-flash": {"name": f"{badge} Gemini 3.6 Flash Fast"},
-                        "gemini-3.5-flash": {"name": f"{badge} Gemini 3.5 Flash Multimodal"},
-                        "gemma-4-31b-it": {"name": f"{badge} Gemma 4 31B Instruct"}
-                    }
-                elif prov == "deepseek":
-                    t_low = acc_tag.lower()
-                    if t_low not in ("c1", "principal", ""):
-                        models_dict = {
-                            f"deepseek-chat-{t_low}": {"name": f"{badge} DeepSeek Chat V3", "id": "deepseek-chat"},
-                            f"deepseek-reasoner-{t_low}": {"name": f"{badge} DeepSeek Reasoner R1", "id": "deepseek-reasoner"}
-                        }
-                    else:
-                        models_dict = {
-                            "deepseek-chat": {"name": f"{badge} DeepSeek Chat V3"},
-                            "deepseek-reasoner": {"name": f"{badge} DeepSeek Reasoner R1"}
-                        }
-                elif prov == "nvidia":
-                    # Catálogo canónico completo NVIDIA NIM (15 modelos) para C1/C7/C9
-                    _NV_CANONICAL = [
-                        ("deepseek-ai/deepseek-v4-flash-0731", "DeepSeek V4 Flash", 262144),
-                        ("deepseek-ai/deepseek-v4-pro-0813", "DeepSeek V4 Pro", 262144),
-                        ("moonshotai/kimi-k3", "Kimi K3 Frontier", 262144),
-                        ("minimaxai/minimax-m3", "MiniMax M3", 1048576),
-                        ("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "Nemotron 3 Nano", 256000),
-                        ("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", 262144),
-                        ("nvidia/nemotron-3.5-content-safety", "Nemotron 3.5 Content-Safety", 128000),
-                        ("nvidia/llama-3.1-nemoguard-8b-content-safety", "Nemoguard Content-Safety", 131072),
-                        ("nvidia/llama-3.1-nemoguard-8b-topic-control", "Nemoguard Topic-Control", 131072),
-                        ("nvidia/llama-3.1-nemotron-safety-guard-8b-v3", "Safety-Guard v3", 131072),
-                        ("poolside/laguna-xs-2.1", "Laguna XS 2.1", 128000),
-                        ("meta/llama-3.2-11b-vision-instruct", "Llama 3.2 11B Vision", 131072),
-                        ("nvidia/ising-calibration-1.5-31b", "Ising Calibration 31B", 131072),
-                        ("nvidia/riva-translate-4b-instruct-v1.1", "Riva Translate v1.1", 4096),
-                        ("nvidia/riva-translate-4b-instruct-v2", "Riva Translate v2", 4096),
-                    ]
-                    models_dict = {
-                        mid: {"name": f"{badge} {nm} (NIM)", "context": cx}
-                        for mid, nm, cx in _NV_CANONICAL
-                    }
-                elif prov == "mistral":
-                    t_low = acc_tag.lower()
-                    if t_low not in ("c1", "principal", ""):
-                        models_dict = {
-                            f"codestral-latest-{t_low}": {"name": f"{badge} Mistral Codestral Latest", "id": "codestral-latest"}
-                        }
-                    else:
-                        models_dict = {
-                            "codestral-latest": {"name": f"{badge} Mistral Codestral Latest"}
-                        }
-                elif prov == "openrouter":
-                    models_dict = {
-                        "openrouter/free": {"name": f"{badge} Free Models Router", "context": 200000},
-                        "minimax/minimax-m3:free": {"name": f"{badge} MiniMax: MiniMax M3 (free)", "context": 1048576},
-                        "nvidia/nemotron-3-super-120b-a12b:free": {"name": f"{badge} NVIDIA: Nemotron 3 Super (free)", "context": 1000000},
-                        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} NVIDIA: Nemotron 3 Nano Omni (free)", "context": 131072},
-                        "nvidia/nemotron-3.5-lightning:free": {"name": f"{badge} NVIDIA: Nemotron 3.5 Lightning (free)", "context": 262144},
-                        "nvidia/nemotron-3-ultra-550b-a55b:free": {"name": f"{badge} NVIDIA: Nemotron 3 Ultra (free)", "context": 262144},
-                        "poolside/laguna-s-2.1:free": {"name": f"{badge} Poolside: Laguna S 2.1 (free)", "context": 1048576},
-                        "poolside/laguna-xs-2.1:free": {"name": f"{badge} Poolside: Laguna XS 2.1 (free)", "context": 262144},
-                        "inclusionai/ling-3.0-flash-fin:free": {"name": f"{badge} inclusionAI: Ling 3.0 Flash Fin (free)", "context": 262144},
-                        "dots-studio/dots-3-note-preview:free": {"name": f"{badge} Dots Studio: Dots3-Note Preview (free)", "context": 131072},
-                        "liquid/lfm-2.5-2.6b:free": {"name": f"{badge} LiquidAI: LFM2.5-2.6B (free)", "context": 131072},
-                        "cohere/north-mini-code:free": {"name": f"{badge} Cohere: North Mini Code (free)", "context": 131072},
-                        "google/gemma-4-26b-a4b-it:free": {"name": f"{badge} Google: Gemma 4 26B A4B (free)", "context": 262144},
-                        "inclusionai/ling-3.0-flash-sante:free": {"name": f"{badge} inclusionAI: Ling 3.0 Flash Sante (free)", "context": 131072},
-                        "nvidia/nemotron-3.5-content-safety:free": {"name": f"{badge} NVIDIA: Nemotron 3.5 Content Safety (free)", "context": 131072},
-                        "google/gemma-4-31b-it:free": {"name": f"{badge} Google: Gemma 4 31B (free)", "context": 262144},
-                        "minimax/minimax-m2.7:free": {"name": f"{badge} MiniMax: MiniMax M2.7 (free)", "context": 204800},
-                    }
-                elif prov == "apinex":
-                    models_dict = {
-                        "free/glm-5.3-flash": {"name": f"{badge} GLM 5.3 Flash (Free)", "context": 128000},
-                        "free/deepseek-v4-flash-0731": {"name": f"{badge} DeepSeek V4 Flash (Free)", "context": 262144},
-                        "free/gemini-3.8-flash": {"name": f"{badge} Gemini 3.8 Flash (Free)", "context": 1048576},
-                        "free/gemini-3.1-pro": {"name": f"{badge} Gemini 3.1 Pro (Free)", "context": 1048576},
-                        "free/gpt-5.6-luna": {"name": f"{badge} GPT-5.6 Luna (Free)", "context": 256000},
-                        "free/qwen-3.8-max": {"name": f"{badge} Qwen 3.8 Max (Free)", "context": 262144},
-                        "free/muse-spark-1.3": {"name": f"{badge} Muse Spark 1.3 (Free)", "context": 128000},
-                        "free/deepseek-v4-pro-0813": {"name": f"{badge} DeepSeek V4 Pro (Free)", "context": 262144}
-                    }
-                elif prov == "experientiallabs":
-                    models_dict = {
-                        "gpt-6-astra": {"name": f"{badge} GPT-6 Astra", "context": 1048576},
-                        "gpt-6-astra-pro": {"name": f"{badge} GPT-6 Astra Pro", "context": 1048576},
-                        "gpt-5": {"name": f"{badge} GPT-5", "context": 262144},
-                        "claude-sonnet-4.5": {"name": f"{badge} Claude Sonnet 4.5", "context": 200000},
-                        "claude-opus-4.5": {"name": f"{badge} Claude Opus 4.5", "context": 200000},
-                        "grok-4": {"name": f"{badge} Grok 4", "context": 131072},
-                        "gpt-4o-mini": {"name": f"{badge} GPT-4o Mini", "context": 128000},
-                        "deepseek-v3.1": {"name": f"{badge} DeepSeek V3.1", "context": 131072},
-                        "codestral-2508": {"name": f"{badge} Codestral 2508", "context": 262144},
-                        "mistral-small-3.2-24b-instruct": {"name": f"{badge} Mistral Small 3.2 24B", "context": 131072},
-                        "mistral-large-2407": {"name": f"{badge} Mistral Large 2407", "context": 131072},
-                        "llama-3.3-70b-instruct": {"name": f"{badge} LLaMA 3.3 70B", "context": 131072},
-                        "qwen3.8-flash": {"name": f"{badge} Qwen 3.8 Flash", "context": 131072},
-                        "qwen3-coder-flash": {"name": f"{badge} Qwen 3 Coder Flash", "context": 131072},
-                        "glm-4.7-flash": {"name": f"{badge} GLM 4.7 Flash", "context": 128000},
-                        "aion-3.0": {"name": f"{badge} Aion 3.0", "context": 131072},
-                        "solar-pro-3": {"name": f"{badge} Solar Pro 3", "context": 65536}
-                    }
-                else:
-                    models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
-
-                # Identificador único de proveedor en OpenCode
-                prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in opencode_providers else f"{prov}_{acc_tag.lower()}"
-
-                BUILTIN_PROVIDERS = {"google", "openrouter", "mistral", "nvidia", "groq", "deepseek"}
-                is_builtin = prov_key in BUILTIN_PROVIDERS
-
-                p_entry = {
-                    "npm": npm_pkg,
-                    "name": f"{badge} {api.get('name', prov)}",
-                    "options": opts,
-                    "models": models_dict
-                }
-                if is_builtin:
-                    p_entry["whitelist"] = list(models_dict.keys())
-                opencode_providers[prov_key] = p_entry
-
-            ALL_KNOWN_NATIVE_PROVIDERS = [
-                "alibaba", "aliyun", "amazon-bedrock", "anthropic", "azure", "bai",
-                "bedrock", "cerebras", "cloudflare", "cohere", "fireworks",
-                "github-copilot", "lmstudio", "moonshotai", "ollama", "openai",
-                "perplexity", "replicate", "tabitoken", "together", "upstage",
-                "vertex", "vllm", "voyage", "xai", "zen"
-            ]
-            disabled_providers = [p for p in ALL_KNOWN_NATIVE_PROVIDERS if p not in opencode_providers]
-
-            opencode_cfg = {
-                "$schema": "https://opencode.ai/config.json",
-                "model": "google/gemini-3.7-flash",
-                "small_model": "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-                "disabled_providers": disabled_providers,
-                "enabled_providers": list(opencode_providers.keys()),
-                "provider": opencode_providers
-            }
-            if existing_mcp:
-                opencode_cfg["mcp"] = existing_mcp
-
-            os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
-            atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
-            results["OpenCode"] = True
-            self.log_signal.emit(f"  ✅ OpenCode sincronizado exitosamente ({len(opencode_providers)} proveedores/cuentas).")
+                except Exception as parse_exc:
+                    results["OpenCode"] = False
+                    self.log_signal.emit(f"  ⚠️ OpenCode: SSOT no legible ({parse_exc}); no se tocó.")
+            else:
+                results["OpenCode"] = False
+                self.log_signal.emit("  ⚠️ OpenCode: SSOT inexistente; la suite no lo crea (cúralo a mano).")
         except Exception as e:
             results["OpenCode"] = False
             self.log_signal.emit(f"  ❌ Error en OpenCode: {e}")
 
-        # 2. Hermes Agent (~/.hermes/config.yaml & cache)
+        # Código legacy desactivado: la suite ya no genera opencode.jsonc
+        # (la sección siguiente se conserva solo como referencia histórica y no se ejecuta).
+
+        # 2. Hermes Agent (~/.hermes/config.yaml & cache) — CONFIG DERIVADA (2026-10-11):
+        #    Ambos archivos se regeneran ÚNICAMENTE por SCRIPTS/sync_models_all.sh desde el
+        #    SSOT. La suite ya no los escribe (aplicaba defaults retirados: gemini-3.7-flash,
+        #    minimax-m3:free) y delega en el script del bloque DSH.
         try:
-            self._backup_file(HERMES_CONFIG)
-            hermes_providers = {}
-            for api in self.apis:
-                if not api.get("enabled", True):
-                    continue
-                prov = api.get("provider", "custom")
-                acc_tag = api.get("account_tag", "C1")
-                env_k = api.get("env_key", "")
-                base_u = api.get("base_url", "")
-                tm = api.get("test_model", "default")
-                prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in hermes_providers else f"{prov}_{acc_tag.lower()}"
-
-                if prov == "google":
-                    model_list = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]
-                elif prov == "deepseek":
-                    model_list = ["deepseek-chat", "deepseek-reasoner"]
-                elif prov == "nvidia":
-                    model_list = ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]
-                elif prov == "mistral":
-                    model_list = ["codestral-latest"]
-                elif prov == "openrouter":
-                    model_list = [
-                        "openrouter/auto", "openrouter/free", "minimax/minimax-m3:free",
-                        "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-                        "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free", "meta-llama/llama-3.3-70b-instruct:free",
-                        "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free",
-                        "google/gemini-2.0-flash-exp:free"
-                    ]
-                else:
-                    model_list = [tm]
-
-                ssot_models = _ssot_provider_models(prov)
-                if ssot_models:
-                    model_list = ssot_models
-
-                hermes_providers[prov_key] = {
-                    "name": api.get('name', prov),
-                    "env_key": env_k,
-                    "base_url": base_u,
-                    "models": model_list
-                }
-                if prov not in hermes_providers:
-                    hermes_providers[prov] = {
-                        "name": f"{prov.capitalize()} Fleet [Primary]",
-                        "env_key": env_k,
-                        "base_url": base_u,
-                        "models": list(model_list)
-                    }
-                else:
-                    for m_id in model_list:
-                        if m_id not in hermes_providers[prov]["models"]:
-                            hermes_providers[prov]["models"].append(m_id)
-
-            providers_yaml = []
-            for pkey, pval in hermes_providers.items():
-                m_lines = "\n".join(f"      - {mid}" for mid in pval["models"])
-                providers_yaml.append(f"""  {pkey}:
-    name: "{pval['name']}"
-    env_key: {pval['env_key']}
-    base_url: {pval['base_url']}
-    api: openai-completions
-    models:
-{m_lines}""")
-
-            hermes_content = f"""model:
-  default: gemini-3.7-flash
-  provider: google
-  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-providers:
-{chr(10).join(providers_yaml)}
-database:
-  journal_mode: wal
-runtime:
-  nofile_soft_limit: 4096
-_config_version: 41
-fallback_model:
-  provider: openrouter
-  model: minimax/minimax-m3:free
-"""
-            os.makedirs(os.path.dirname(HERMES_CONFIG), exist_ok=True)
-            with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
-                f.write(hermes_content)
-
-            hermes_clean_cache = {
-                "google": {"fp": "google-ssot", "at": time.time(), "models": _ssot_provider_models("google")},
-                "openrouter": {"fp": "openrouter-ssot", "at": time.time(), "models": _ssot_provider_models("openrouter")},
-                "nvidia": {"fp": "nvidia-ssot", "at": time.time(), "models": _ssot_provider_models("nvidia")},
-                "mistral": {"fp": "mistral-ssot", "at": time.time(), "models": _ssot_provider_models("mistral")},
-                "deepseek": {"fp": "deepseek-ssot", "at": time.time(), "models": _ssot_provider_models("deepseek")}
-            }
-            atomic_json_write(HERMES_CACHE, hermes_clean_cache)
-
             results["Hermes"] = True
-            self.log_signal.emit("  ✅ Hermes Agent sincronizado y purgado exitosamente.")
+            self.log_signal.emit("  🛡️ Hermes: sin escritura directa (config derivada del SSOT vía sync_models_all.sh).")
         except Exception as e:
             results["Hermes"] = False
             self.log_signal.emit(f"  ❌ Error en Hermes: {e}")
 
+        # Código legacy desactivado (referencia histórica):
+
         # 3. Sincronización .env y Custom APIs Cache
         try:
             sanitized_list = [sanitize_api_for_disk(a) for a in self.apis]
+            sanitized_list.insert(0, {"id": "__seed_version__", "v": APIS_SEED_VERSION})
             atomic_json_write(APIS_CONFIG_FILE, sanitized_list)
             results["EnvSync"] = True
             self.log_signal.emit(f"  ✅ Configuración persistida en caché segura: {APIS_CONFIG_FILE}")
@@ -1056,58 +860,16 @@ fallback_model:
         self.finished_signal.emit(results)
 
     def _generate_dsh_fallback(self, dsh_user: str, dsh_ws: str) -> bool:
-        try:
-            import yaml
-            dsh_providers = {}
-            for api in self.apis:
-                if not api.get("enabled", True):
-                    continue
-                prov = api.get("provider", "custom")
-                acc_tag = api.get("account_tag", "C1")
-                env_k = api.get("env_key", "")
-                base_u = api.get("base_url", "")
-                tm = api.get("test_model", "default")
-                prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in dsh_providers else f"{prov}_{acc_tag.lower()}"
+        """DESACTIVADO (2026-10-11): ~/.dsh/settings.yaml y SCRIPTS/dsh-settings.yaml son
+        configs DERIVADAS del SSOT, regenerables únicamente por sync_models_all.sh.
+        El fallback autónomo escribía un formato viejo (deepseek-official/deepseek-chat,
+        NIM directo sin proxy) que rompía el harness. La suite ya no escribe DSH."""
+        self.log_signal.emit(
+            "  🛡️ DSH: fallback autónomo desactivado. Las configs de DSH son derivadas del SSOT; "
+            "repara SCRIPTS/sync_models_all.sh o el SSOT en lugar de regenerarlas aquí."
+        )
+        return False
 
-                if prov == "google":
-                    m_list = [{"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash Reasoning", "contextWindow": 1048576}]
-                elif prov == "deepseek":
-                    m_list = [
-                        {"id": "deepseek-chat", "name": "DeepSeek Chat V3", "contextWindow": 131072},
-                        {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner R1", "contextWindow": 131072}
-                    ]
-                elif prov == "mistral":
-                    m_list = [{"id": "codestral-latest", "name": "Mistral Codestral Latest", "contextWindow": 131072}]
-                else:
-                    m_list = [{"id": tm, "name": tm, "contextWindow": 131072}]
-
-                dsh_providers[prov_key] = {
-                    "api": "openai-completions",
-                    "displayName": api.get("name", prov_key),
-                    "apiKeyEnv": env_k,
-                    "baseURL": base_u,
-                    "models": m_list
-                }
-
-            dsh_data = {
-                "version": 2,
-                "default_provider": "deepseek-official",
-                "default_model": "deepseek-chat",
-                "theme": "dark",
-                "llm-pi-ai": {
-                    "providers": dsh_providers
-                }
-            }
-            for p in (dsh_user, dsh_ws):
-                if p and os.path.exists(os.path.dirname(p)):
-                    self._backup_file(p)
-                    with open(p, "w", encoding="utf-8") as f:
-                        yaml.dump(dsh_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-            self.log_signal.emit("  ✅ DSH configurado autónomamente (llm-pi-ai.providers).")
-            return True
-        except Exception as exc:
-            self.log_signal.emit(f"  ❌ Fallo en fallback DSH: {exc}")
-            return False
 
 
 class ApiEditDialog(QDialog):
@@ -1307,7 +1069,7 @@ class ApiEditDialog(QDialog):
             presets = {
                 "google": ("Google AI Studio", f"{tag}_GOOGLE_AISTUDIO", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.7-flash", "Bearer"),
                 "nvidia": ("NVIDIA NIM Dedicated", f"{tag}_NVIDIA" if tag != "C7" else "C7_NVIDIA", "https://integrate.api.nvidia.com/v1", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "Bearer"),
-                "deepseek": ("DeepSeek Direct", f"{tag}_DEEPSEEK" if tag != "Direct" else "DEEPSEEK_API_KEY", "https://api.deepseek.com/v1", "deepseek-chat", "Bearer"),
+                "deepseek": ("EvoLink DeepSeek Gateway", f"{tag}_EVOLINK_API" if tag != "C7" else "C7_EVOLINK_API", "https://api.evolink.ai/v1", "deepseek-chat", "Bearer"),
                 "mistral": ("Mistral AI / Codestral", f"{tag}_MISTRAL", "https://api.mistral.ai/v1", "codestral-latest", "Bearer"),
                 "openrouter": ("OpenRouter Global Hub", f"{tag}_OPENROUTER" if tag != "C7" else "C7_OPENROUTER", "https://openrouter.ai/api/v1", "openrouter/auto", "Bearer"),
                 "groq": ("Groq LPU Cloud", f"{tag}_GROQ", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", "Bearer"),
@@ -1323,7 +1085,7 @@ class ApiEditDialog(QDialog):
                 "seekai": ("SeekAI LLM Hub", f"{tag}_SEEKAI_API", "https://seekai.cc/v1", "default", "Bearer"),
                 "gorouter": ("GoRouter AI Hub", f"{tag}_GOROUTER_API", "https://api.gorouter.cc/v1", "default", "Bearer"),
                 "justworker": ("JustWorker AI", f"{tag}_JUSTWORKER_API", "https://api.justwoker.icu/v1", "default", "Bearer"),
-                "kimi": ("Kimi Moonshot Platform", f"{tag}_KIMI_PLATFORM_API", "https://api.moonshot.cn/v1", "moonshot-v1-8k", "Bearer"),
+                "kimi": ("Kimi Moonshot Platform (sonda pasiva)", f"{tag}_KIMI_PLATFORM_API", "https://api.moonshot.ai/v1", "kimi-k3", "Bearer"),
                 "venice": ("Venice AI", f"{tag}_VENICE_API", "https://api.venice.ai/api/v1", "qwen-3-8-max", "Bearer"),
                 "kktoken": ("KKToken AI Hub", f"{tag}_KKTOKEN_API", "https://kktoken.cc/v1", "default", "Bearer"),
                 "experientials_labs": ("Experiential Labs AI", f"{tag}_EXPERIENTIALS_LABS_API", "https://api.experientiallabs.ai/v1", "default", "Bearer"),
@@ -1680,12 +1442,32 @@ class TabApiManager(QWidget):
     def init_data(self):
         self.env_map = load_env_vars()
         loaded_apis = []
+        seed_version_seen = 0
         if os.path.exists(APIS_CONFIG_FILE):
             try:
                 with open(APIS_CONFIG_FILE, "r", encoding="utf-8") as f:
-                    loaded_apis = json.load(f)
+                    raw_cache = json.load(f)
+                if isinstance(raw_cache, list):
+                    sentinel = next((r for r in raw_cache if isinstance(r, dict) and r.get("id") == "__seed_version__"), None)
+                    if sentinel:
+                        seed_version_seen = int(sentinel.get("v", 0))
+                    loaded_apis = [r for r in raw_cache if isinstance(r, dict) and r.get("id") != "__seed_version__"]
             except Exception:
                 loaded_apis = []
+
+        # Migración idempotente de semilla: si el seed subió, actualizar los
+        # campos gestionados de las entradas cacheadas (sin tocar api_key).
+        if seed_version_seen < APIS_SEED_VERSION and loaded_apis:
+            defaults_by_id = {d["id"]: d for d in DEFAULT_APIS}
+            migrated = []
+            for api in loaded_apis:
+                d = defaults_by_id.get(api.get("id"))
+                if d:
+                    for field in _APIS_SEED_MANAGED_FIELDS:
+                        if field in d:
+                            api[field] = d[field]
+                migrated.append(api)
+            loaded_apis = migrated
 
         existing_ids = {a.get("id") for a in loaded_apis if a.get("id")}
         self.apis = list(loaded_apis) if loaded_apis else []
@@ -1706,6 +1488,7 @@ class TabApiManager(QWidget):
 
     def save_apis(self):
         sanitized = [sanitize_api_for_disk(a) for a in self.apis]
+        sanitized.insert(0, {"id": "__seed_version__", "v": APIS_SEED_VERSION})
         atomic_json_write(APIS_CONFIG_FILE, sanitized)
 
     def init_ui(self):
@@ -2373,216 +2156,22 @@ class TabApiManager(QWidget):
                 pass
 
     def _propagate_to_opencode(self):
-        """Propaga configuración solo a OpenCode."""
-        self._backup_file_local(OPENCODE_CONFIG)
-        existing_mcp = {}
-        if os.path.exists(OPENCODE_CONFIG):
-            try:
-                with open(OPENCODE_CONFIG, "r", encoding="utf-8") as f:
-                    old_json = json.load(f)
-                    existing_mcp = old_json.get("mcp", {})
-            except Exception:
-                pass
+        """DESACTIVADO (2026-10-11): opencode.jsonc es el SSOT manual del ecosistema;
+        la suite nunca lo sobrescribe. Curar modelos: editar ~/.opencode/opencode.jsonc
+        y ejecutar bash SCRIPTS/sync_models_all.sh."""
+        raise RuntimeError(
+            "OpenCode es el SSOT (curado a mano). La suite no lo modifica. "
+            "Edita ~/.opencode/opencode.jsonc y ejecuta SCRIPTS/sync_models_all.sh."
+        )
 
-        opencode_providers = {}
-        for api in self.apis:
-            if not api.get("enabled", True):
-                continue
-            prov = api.get("provider", "custom")
-            acc_tag = api.get("account_tag", "C1")
-            env_k = api.get("env_key", "")
-            base_u = api.get("base_url", "")
-            test_m = api.get("test_model", "default")
-            prov_key = f"{prov}_{acc_tag.lower()}" if acc_tag not in ("C1", "Direct", "Principal", "") else prov
-
-            npm_pkg = "@ai-sdk/openai-compatible"
-            if prov == "google":
-                npm_pkg = "@ai-sdk/google"
-            elif prov == "mistral" and acc_tag in ("C1", "Principal", ""):
-                npm_pkg = "@ai-sdk/mistral"
-
-            opts = {}
-            if base_u:
-                opts["baseURL"] = base_u
-            if env_k:
-                opts["apiKey"] = f"{{env:{env_k}}}"
-
-            badge = get_account_badge_label(acc_tag)
-            if prov == "google":
-                models_dict = {
-                    "gemini-3.7-flash": {"name": f"{badge} Gemini 3.7 Flash Reasoning"},
-                    "gemini-3.6-flash": {"name": f"{badge} Gemini 3.6 Flash Fast"},
-                    "gemini-3.5-flash": {"name": f"{badge} Gemini 3.5 Flash Multimodal"},
-                    "gemma-4-31b-it": {"name": f"{badge} Gemma 4 31B Instruct"}
-                }
-            elif prov == "deepseek":
-                t_low = acc_tag.lower()
-                if t_low not in ("c1", "principal", ""):
-                    models_dict = {
-                        f"deepseek-chat-{t_low}": {"name": f"{badge} DeepSeek Chat V3", "id": "deepseek-chat"},
-                        f"deepseek-reasoner-{t_low}": {"name": f"{badge} DeepSeek Reasoner R1", "id": "deepseek-reasoner"}
-                    }
-                else:
-                    models_dict = {
-                        "deepseek-chat": {"name": f"{badge} DeepSeek Chat V3"},
-                        "deepseek-reasoner": {"name": f"{badge} DeepSeek Reasoner R1"}
-                    }
-            elif prov == "nvidia":
-                models_dict = {
-                    "deepseek-ai/deepseek-v4-flash-0731": {"name": f"{badge} DeepSeek V4 Flash (NIM)"},
-                    "moonshotai/kimi-k3": {"name": f"{badge} Kimi K3 Frontier (NIM)"},
-                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {"name": f"{badge} Nemotron 3 Nano NIM"}
-                }
-            elif prov == "mistral":
-                t_low = acc_tag.lower()
-                if t_low not in ("c1", "principal", ""):
-                    models_dict = {
-                        f"codestral-latest-{t_low}": {"name": f"{badge} Mistral Codestral Latest", "id": "codestral-latest"}
-                    }
-                else:
-                    models_dict = {
-                        "codestral-latest": {"name": f"{badge} Mistral Codestral Latest"}
-                    }
-            elif prov == "openrouter":
-                models_dict = {
-                    "openrouter/auto": {"name": f"{badge} OpenRouter Auto"},
-                    "openrouter/free": {"name": f"{badge} OpenRouter Free"},
-                    "minimax/minimax-m3:free": {"name": f"{badge} MiniMax M3 Frontier"},
-                    "nvidia/nemotron-3-super-120b-a12b:free": {"name": f"{badge} Nemotron 3 Super 120B"},
-                    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {"name": f"{badge} Nemotron 3 Nano Reasoning"},
-                    "z-ai/glm-5.2:free": {"name": f"{badge} GLM 5.2 Frontier"},
-                    "poolside/laguna-s-2.1:free": {"name": f"{badge} Laguna S 2.1 Code"}
-                }
-            else:
-                models_dict = {test_m: {"name": f"{badge} [{prov.upper()}] {test_m}"}}
-
-            prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in opencode_providers else f"{prov}_{acc_tag.lower()}"
-
-            BUILTIN_PROVIDERS = {"google", "openrouter", "mistral", "nvidia", "groq", "deepseek"}
-            is_builtin = prov_key in BUILTIN_PROVIDERS
-
-            p_entry = {
-                "npm": npm_pkg,
-                "name": f"{badge} {api.get('name', prov)}",
-                "options": opts,
-                "models": models_dict
-            }
-            if is_builtin:
-                p_entry["whitelist"] = list(models_dict.keys())
-            opencode_providers[prov_key] = p_entry
-
-        ALL_KNOWN_NATIVE_PROVIDERS = [
-            "alibaba", "aliyun", "amazon-bedrock", "anthropic", "azure", "bai",
-            "bedrock", "cerebras", "cloudflare", "cohere", "fireworks",
-            "github-copilot", "lmstudio", "moonshotai", "ollama", "openai",
-            "perplexity", "replicate", "tabitoken", "together", "upstage",
-            "vertex", "vllm", "voyage", "xai", "zen"
-        ]
-        disabled_providers = [p for p in ALL_KNOWN_NATIVE_PROVIDERS if p not in opencode_providers]
-
-        opencode_cfg = {
-            "$schema": "https://opencode.ai/config.json",
-            "model": "google/gemini-3.7-flash",
-            "small_model": "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-            "disabled_providers": disabled_providers,
-            "enabled_providers": list(opencode_providers.keys()),
-            "provider": opencode_providers
-        }
-        if existing_mcp:
-            opencode_cfg["mcp"] = existing_mcp
-
-        os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
-        atomic_json_write(OPENCODE_CONFIG, opencode_cfg)
 
     def _propagate_to_hermes(self):
-        """Propaga configuración solo a Hermes Agent."""
-        self._backup_file_local(HERMES_CONFIG)
-        hermes_providers = {}
-        for api in self.apis:
-            if not api.get("enabled", True):
-                continue
-            prov = api.get("provider", "custom")
-            acc_tag = api.get("account_tag", "C1")
-            env_k = api.get("env_key", "")
-            base_u = api.get("base_url", "")
-            tm = api.get("test_model", "default")
-            prov_key = prov if acc_tag in ("C1", "Direct", "Principal", "") and prov not in hermes_providers else f"{prov}_{acc_tag.lower()}"
+        """DESACTIVADO (2026-10-11): ~/.hermes/config.yaml es config derivada del SSOT,
+        regenerada por sync_models_all.sh. La suite no la escribe."""
+        raise RuntimeError(
+            "Hermes se regenera desde el SSOT vía SCRIPTS/sync_models_all.sh."
+        )
 
-            if prov == "google":
-                model_list = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]
-            elif prov == "deepseek":
-                model_list = ["deepseek-chat", "deepseek-reasoner"]
-            elif prov == "nvidia":
-                model_list = ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]
-            elif prov == "mistral":
-                model_list = ["codestral-latest"]
-            elif prov == "openrouter":
-                model_list = [
-                    "openrouter/auto", "openrouter/free", "minimax/minimax-m3:free",
-                    "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-                    "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free", "meta-llama/llama-3.3-70b-instruct:free",
-                    "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free",
-                    "google/gemini-2.0-flash-exp:free"
-                ]
-            else:
-                model_list = [tm]
-
-            hermes_providers[prov_key] = {
-                "name": api.get('name', prov),
-                "env_key": env_k,
-                "base_url": base_u,
-                "models": model_list
-            }
-            if prov not in hermes_providers:
-                hermes_providers[prov] = {
-                    "name": f"{prov.capitalize()} Fleet [Primary]",
-                    "env_key": env_k,
-                    "base_url": base_u,
-                    "models": list(model_list)
-                }
-            else:
-                for m_id in model_list:
-                    if m_id not in hermes_providers[prov]["models"]:
-                        hermes_providers[prov]["models"].append(m_id)
-
-        providers_yaml = []
-        for pkey, pval in hermes_providers.items():
-            m_lines = "\n".join(f"      - {mid}" for mid in pval["models"])
-            providers_yaml.append(f"""  {pkey}:
-    name: "{pval['name']}"
-    env_key: {pval['env_key']}
-    base_url: {pval['base_url']}
-    api: openai-completions
-    models:
-{m_lines}""")
-
-        hermes_content = f"""model:
-  default: gemini-3.7-flash
-  provider: google
-  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-providers:
-{chr(10).join(providers_yaml)}
-database:
-  journal_mode: wal
-runtime:
-  nofile_soft_limit: 4096
-_config_version: 41
-fallback_model:
-  provider: openrouter
-  model: minimax/minimax-m3:free
-"""
-        os.makedirs(os.path.dirname(HERMES_CONFIG), exist_ok=True)
-        with open(HERMES_CONFIG, "w", encoding="utf-8") as f:
-            f.write(hermes_content)
-
-        hermes_clean_cache = {
-            "google": {"fp": "google-curated-v4", "at": time.time(), "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemma-4-31b-it"]},
-            "openrouter": {"fp": "openrouter-curated-v4", "at": time.time(), "models": ["openrouter/auto", "openrouter/free", "meta-llama/llama-3.3-70b-instruct:free", "qwen/qwen-2.5-coder-32b-instruct:free", "deepseek/deepseek-r1:free", "google/gemini-2.0-flash-exp:free", "minimax/minimax-m3:free", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "z-ai/glm-5.2:free", "poolside/laguna-s-2.1:free"]},
-            "nvidia": {"fp": "nvidia-curated-v4", "at": time.time(), "models": ["deepseek-ai/deepseek-v4-flash-0731", "moonshotai/kimi-k3", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"]},
-            "mistral": {"fp": "mistral-curated-v4", "at": time.time(), "models": ["codestral-latest"]},
-            "deepseek": {"fp": "deepseek-curated-v4", "at": time.time(), "models": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"]}
-        }
-        atomic_json_write(HERMES_CACHE, hermes_clean_cache)
 
     def _update_single_api_row(self, api_id: str, res: dict):
         """Actualiza solo la fila específica en la tabla sin reconstruir todo."""

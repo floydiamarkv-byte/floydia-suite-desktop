@@ -160,12 +160,29 @@ DEFAULT_NODES: List[Dict[str, Any]] = [
         "warning": "⚠️ Cortará la conectividad de toda la red durante su reinicio."
     },
     {
+        "id": "tablet_sm_t550",
+        "name": "Tablet Samsung SM-T550",
+        "subtitle": "Android (ADB over network :5555)",
+        "icon": "📱",
+        "enabled": True,
+        "order": 6,
+        "type": "adb_android",
+        "ip_env_key": "S30_TABLET_SMT550_IP",
+        "default_ip": "192.168.1.75",
+        "user_env_key": None,
+        "default_user": None,
+        "pass_env_key": None,
+        "check_port": 5555,
+        "timeout": 10,
+        "warning": None
+    },
+    {
         "id": "hp15",
         "name": "Laptop HP15 (Local)",
         "subtitle": "Estación Principal Debian (Host Ejecutor)",
         "icon": "⚡",
         "enabled": False,
-        "order": 6,
+        "order": 7,
         "type": "localhost",
         "ip_env_key": "HP15_IP",
         "default_ip": "127.0.0.1",
@@ -737,7 +754,7 @@ class TabReboot(QWidget):
         self.log_console.appendPlainText(f"{prefix} {msg}")
 
     def run_health_check(self):
-        if self.worker and self.worker.isRunning():
+        if is_worker_running(self.worker):
             return
         self.btn_health.setEnabled(False)
         self.worker = HealthCheckWorker(self.nodes, self.env_map)
@@ -770,7 +787,7 @@ class TabReboot(QWidget):
                 return
 
             # B-12 (GLM): Validar previamente si hay un health-check o worker activo para no descartar silenciosamente
-            if (self.worker and self.worker.isRunning()) or (self.health_worker and self.health_worker.isRunning()):
+            if is_worker_running(self.worker):
                 QMessageBox.warning(
                     self, "Operación en Curso",
                     "Hay una verificación de salud o secuencia activa en este momento. Espera a que concluya antes de iniciar el reinicio."
@@ -856,7 +873,7 @@ class TabReboot(QWidget):
             QMessageBox.critical(self, "Error", f"Ocurrió un error al preparar el reinicio:\n{exc}")
 
     def start_reboot_sequence(self, active_nodes: List[Dict[str, Any]], dry_run: bool):
-        if self.worker and self.worker.isRunning():
+        if is_worker_running(self.worker):
             return
 
         self.btn_start.setEnabled(False)

@@ -37,13 +37,13 @@
 
 ### 2. 🎛️ MCP Cockpit & Skills Studio
 * **Gestor de Servidores MCP**: Control granular de activación y desactivación de servidores Model Context Protocol (`~/.gemini/config/mcp_config.json`).
-* **Propagación Atómica 1-Clic a Todos los Agentes**: Puente determinista que propaga simultáneamente los servidores MCP activos hacia:
-  * **Antigravity IDE**: `~/.gemini/config/mcp_config.json`
-  * **OpenCode**: `~/.config/opencode/opencode.jsonc`
-  * **Zed Editor**: `~/.config/zed/settings.json` (context_servers)
-  * **Hermes Agent**: `~/.hermes/config.yaml`
-  * **Qoder**: `~/.qoder/settings.json`
-  * **DeepSeek Harness (DSH)**: `~/.dsh/profiles/web/cordis.patch.yml`
+* **Propagación Atómica 1-Clic REAL a Todos los Agentes** *(desde 2026-10-12)*: al pulsar **"Guardar y Aplicar"**, la suite **escribe directamente** (no solo exporta fragmentos) los MCPs activos hacia:
+  * **Antigravity IDE / agy CLI**: `~/.gemini/config/mcp_config.json` (SSOT del cockpit)
+  * **OpenCode**: `~/.config/opencode/opencode.jsonc` (fusión no destructiva: preserva entradas manuales)
+  * **Hermes Agent**: `~/.hermes/config.yaml` (bloque `mcp_servers`)
+  * **DeepSeek Harness (DSH)**: regenera `~/.dsh/profiles/web/cordis.patch.yml` vía el sincronizador canónico
+* **Seguridad auditable**: toda escritura sobre configs del harness pasa por la vía autorizada (`write_harness_owned` / `_harness_write_grant`, con `reason` trazable por `grep`), genera backup `*.bak-suite` y copia de auditoría en `cache/`. El test `test_no_ssot_writes.py` vigila que ninguna escritura ocurra fuera de esa vía.
+* **Preset 🎨 Diseño Web**: activación 1-clic del stack de skills de diseño (accessibility, best-practices, core-web-vitals, performance, seo, web-quality-audit).
 * **Presupuesto de Tokens de Skills**: Monitoreo visual de skills de agentes activos para asegurar un consumo óptimo (<700 tokens).
 
 ### 3. 🔑 API Manager & Propagación Multi-Cuenta
@@ -144,6 +144,17 @@ Las contribuciones son bienvenidas. Si deseas añadir nuevos proveedores de mode
 3. Realiza tus commits (`git commit -m 'feat: Añadir soporte para nuevo provider'`).
 4. Haz push a la rama (`git push origin feature/nueva-mejora`).
 5. Abre un **Pull Request**.
+
+---
+
+## 📦 Changelog
+
+### 2026-10-12 — Propagación MCP 1-clic real + Cockpit multi-tenant
+- **Propagación automática**: el *MCP Cockpit* ya no exporta fragmentos para fusión manual — escribe directamente y de forma atómica en OpenCode, Hermes y DSH, con backup `*.bak-suite` y escritura auditable (`write_harness_owned` / `_harness_write_grant`).
+- **`test_no_ssot_writes.py`** actualizado: la política pasa de "nunca escribir" a "escribir solo por la vía auditable", con control positivo intacto.
+- **Preset 🎨 Diseño Web** en Skills Studio (accessibility, best-practices, core-web-vitals, performance, seo, web-quality-audit).
+- **Fix tenant Novamira**: `novamira-mcp` era dinámico (fallback a Wattsaver) y se renombra a `novamira-evergreen`; añadidos los tenants `novamira-wattsaver`, `novamira-floydia`, `novamira-coquita` y `novamira-kuamikiachi` como entradas independientes activables desde el Cockpit.
+- **32/32 tests** en verde.
 
 ---
 

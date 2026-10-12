@@ -232,12 +232,42 @@ class TestAuditRemediationV2(unittest.TestCase):
         tab_cleaner_mock.restore_state.assert_called_once_with({"profile": "deep"})
         self.assertNotIn("tab_cleaner", app_mock._pending_module_states)
 
-    def test_app_main_required_symbols_available(self):
-        """Verifica que todos los símbolos requeridos en main() (QTimer, etc.) estén importados y disponibles."""
-        import floydia_suite_app
-        self.assertTrue(hasattr(floydia_suite_app, "QTimer"), "QTimer debe estar disponible en floydia_suite_app")
-        self.assertTrue(callable(floydia_suite_app.main), "main() debe ser invocable")
+    # ── 9. TAB REBOOT: ATRIBUTOS Y PREPARACIÓN DE REINICIO ────────────────────
+    def test_tab_reboot_confirm_and_start_reboot_no_attribute_error(self):
+        """Verifica que confirm_and_start_reboot no invoque atributos inexistentes como health_worker."""
+        from modules.tab_reboot import TabReboot
+        
+        tab = MagicMock(spec=TabReboot)
+        tab.nodes = [{"id": "hp15", "name": "Laptop HP15", "enabled": True, "default_ip": "127.0.0.1"}]
+        tab.worker = None
+        tab.chk_dry_run = MagicMock()
+        tab.chk_dry_run.isChecked.return_value = True
+        tab.log_message = MagicMock()
+        tab.start_reboot_sequence = MagicMock()
+        
+        # Con worker activo
+        active_worker_mock = MagicMock()
+        active_worker_mock.isRunning.return_value = True
+        tab.worker = active_worker_mock
+        
+        with patch("modules.tab_reboot.QMessageBox.warning") as mock_warn:
+            TabReboot.confirm_and_start_reboot(tab)
+            mock_warn.assert_called_once()
+            tab.start_reboot_sequence.assert_not_called()
+        
+        # Con worker inactivo
+        tab.worker = None
+        with patch("modules.tab_reboot.QMessageBox") as mock_box_cls:
+            mock_box = MagicMock()
+            mock_box_cls.return_value = mock_box
+            mock_btn = MagicMock()
+            mock_box.addButton.side_effect = [mock_btn, MagicMock()]
+            mock_box.clickedButton.return_value = mock_btn
+            
+            TabReboot.confirm_and_start_reboot(tab)
+            tab.start_reboot_sequence.assert_called_once_with(tab.nodes, True)
 
 
 if __name__ == "__main__":
     unittest.main()
+

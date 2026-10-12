@@ -40,3 +40,19 @@ def test_hermes_merge_idempotent(sandboxed_registry):
     out1 = tms._merge_hermes_mcp_content(HERMES_SAMPLE, generated, reg)
     out2 = tms._merge_hermes_mcp_content(out1, generated, reg)
     assert out1 == out2
+
+
+def test_mcp_metadata_labels_and_badges():
+    """Valida que todos los servidores MCP tengan etiquetas, badges y descripciones de pertenencia."""
+    meta = tms.DEFAULT_MCP_METADATA
+    assert "novamira-mcp" in meta
+    assert "DINÁMICO" in meta["novamira-mcp"]["badge"]
+    assert "Multi-Tenant" in meta["novamira-mcp"]["owner"]
+    
+    # Validar clientes específicos
+    clientes = ["novamira-wattsaver", "novamira-evergreen", "novamira-floydia", "novamira-coquita", "novamira-kuamikiachi"]
+    for c in clientes:
+        assert c in meta, f"Falta {c} en DEFAULT_MCP_METADATA"
+        assert "badge" in meta[c] and meta[c]["badge"], f"Falta badge en {c}"
+        assert "owner" in meta[c] and meta[c]["owner"], f"Falta owner en {c}"
+        assert "desc" in meta[c] and meta[c]["desc"], f"Falta desc en {c}"
