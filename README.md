@@ -5,6 +5,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Linux Platform](https://img.shields.io/badge/platform-Linux-orange.svg)]()
 [![Code Style: Clean](https://img.shields.io/badge/architecture-P0%20Hardened-brightgreen.svg)]()
+[![CI](https://github.com/floydiamarkv-byte/floydia-suite-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/floydiamarkv-byte/floydia-suite-desktop/actions/workflows/ci.yml)
+[![gitleaks](https://img.shields.io/badge/secret%20scan-gitleaks-passing-brightgreen.svg)](https://github.com/gitleaks/gitleaks)
+[![Tests](https://img.shields.io/badge/tests-51%20pytest-informational.svg)](tests/)
+[![Code of Conduct](https://img.shields.io/badge/contributions-welcome-blue.svg)](CONTRIBUTING.md)
+[![Security](https://img.shields.io/badge/security-policy-blue.svg)](SECURITY.md)
 
 > **FloydIA Suite (F-Suite)** es un Centro de Comando Unificado para Linux Desktop (PyQt6), diseñado para monitorear la salud de flotas de modelos LLM en tiempo real, optimizar la latencia del sistema (SRE Governor), gestionar servidores MCP (Model Context Protocol) y propagar configuraciones multi-cuenta en 1-clic hacia agentes de desarrollo (**OpenCode**, **Hermes**, **Zed** y Homelab).
 
@@ -132,12 +137,29 @@ nano .env   # o tu editor favorito (code, zed, vim)
    * Toda modificación de archivos de configuración utiliza bloqueo atómico para evitar corrupción en entornos multi-proceso o multi-hilo.
 3. **Shutdown Determinista y Concurrencia Cooperativa**:
    * Los hilos de sondeo implementan `CancellableThread` con detención cooperativa en menos de 2 segundos, garantizando un cierre limpio sin fugas de memoria.
+4. **Escaneo de Secretos (`gitleaks`)**:
+   * Detección de credenciales en el hook de pre-commit y en el job de CI; los valores de las claves nunca se persisten ni se registran.
+5. **Rutas Portables**:
+   * El directorio `SCRIPTS` del workspace se resuelve con `modules/_paths.py` (`$FLOYDIA_WORKSPACE` + búsqueda ascendente). Un CI job bloquea las rutas absolutas de usuario en el código de producción.
+
+> 📋 Para reportar una vulnerabilidad de forma privada, consulta **[SECURITY.md](SECURITY.md)** (no abras un Issue público).
+
+---
+
+## 🧪 Ejecución de Tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+QT_QPA_PLATFORM=offscreen python3 -m pytest tests/ -v
+```
+
+La suite corre **headless** (`QT_QPA_PLATFORM=offscreen`) y debe terminar con exit code 0. CI ejecuta la matriz Python 3.10 → 3.13.
 
 ---
 
 ## 🤝 Contribuciones
 
-Las contribuciones son bienvenidas. Si deseas añadir nuevos proveedores de modelos, mejorar la integración con otros editores de código o aportar nuevos widgets:
+Las contribuciones son bienvenidas. Antes de abrir un PR, lee **[CONTRIBUTING.md](CONTRIBUTING.md)**: incluye el setup local, las reglas obligatorias (tests verdes, sin rutas absolutas de usuario, sin secretos, sin relajar los guards de política) y la checklist de pull request. Si deseas añadir nuevos proveedores de modelos, mejorar la integración con otros editores de código o aportar nuevos widgets:
 
 1. Haz un Fork del proyecto.
 2. Crea una rama para tu feature (`git checkout -b feature/nueva-mejora`).

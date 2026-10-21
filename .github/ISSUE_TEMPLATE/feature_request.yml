@@ -1,0 +1,44 @@
+name: Feature Request
+description: Propose a new capability for FloydIA Suite
+title: "[Feat] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is painful today? Describe the problem, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - AI Radar / telemetry
+        - MCP Cockpit / Skills Studio
+        - API Manager / multi-account propagation
+        - SRE Cleaner / Governor
+        - Infrastructure / Reboot Hub
+        - Network diagnostics
+        - Packaging / CI / DX
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: The proposal does not require weakening the security policy guards.

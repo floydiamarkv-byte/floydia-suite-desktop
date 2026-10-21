@@ -6,13 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -35,8 +38,29 @@ jobs:
           FLOYDIA_TELEMETRY_DB: /tmp/floydia-ci/telemetry.db
         run: python -m pytest tests/ -v --tb=short
 
+      - name: Guard: sin rutas absolutas de usuario (código de producción)
+        run: |
+          if git grep -nE '/home/[A-Za-z0-9_.-]+/' -- modules/ theme.py floydia_suite_app.py; then
+            echo "::error::Rutas absolutas de usuario en código de producción. Usa modules/_paths.py (FLOYDIA_WORKSPACE + upward search)."
+            exit 1
+          fi
+
       - name: Validar scripts shell
         run: bash -n install.sh run.sh packaging/make_appimage.sh && bash -n packaging/make_appimage.sh
 
       - name: Sintaxis PKGBUILD (bash)
         run: bash -n packaging/PKGBUILD 2>/dev/null || echo "SKIP: PKGBUILD usa sintaxis makepkg (no bash plano)"
+
+  security:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
