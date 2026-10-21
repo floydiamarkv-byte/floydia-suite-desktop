@@ -38,7 +38,7 @@ jobs:
           FLOYDIA_TELEMETRY_DB: /tmp/floydia-ci/telemetry.db
         run: python -m pytest tests/ -v --tb=short
 
-      - name: Guard: sin rutas absolutas de usuario (código de producción)
+      - name: "Guard: sin rutas absolutas de usuario (codigo de produccion)"
         run: |
           if git grep -nE '/home/[A-Za-z0-9_.-]+/' -- modules/ theme.py floydia_suite_app.py; then
             echo "::error::Rutas absolutas de usuario en código de producción. Usa modules/_paths.py (FLOYDIA_WORKSPACE + upward search)."
@@ -49,7 +49,7 @@ jobs:
         run: bash -n install.sh run.sh packaging/make_appimage.sh && bash -n packaging/make_appimage.sh
 
       - name: Sintaxis PKGBUILD (bash)
-        run: bash -n packaging/PKGBUILD 2>/dev/null || echo "SKIP: PKGBUILD usa sintaxis makepkg (no bash plano)"
+        run: 'bash -n packaging/PKGBUILD 2>/dev/null || echo "SKIP: PKGBUILD usa sintaxis makepkg (no bash plano)"'
 
   security:
     name: Secret scan (gitleaks)
