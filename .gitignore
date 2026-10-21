@@ -30,3 +30,6 @@ PROMPT_*.md
 .idea/
 .DS_Store
 *.swp
+
+# Backups locales de parcheo env (no versionar)
+*.bak-*

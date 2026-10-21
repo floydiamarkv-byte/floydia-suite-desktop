@@ -132,8 +132,8 @@ logging:
             os.path.expanduser("~/.gnupg/pubring.kbx"),
             os.path.expanduser("~/.config/opencode/opencode.jsonc"),
             os.path.expanduser("~/.hermes/config.yaml"),
-            "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/.git/config",
-            "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/memory-bank/core/activeContext.md",
+            os.path.join(os.path.expanduser("~"), "workspace", ".git", "config"),
+            os.path.join(os.path.expanduser("~"), "workspace", "memory-bank", "core", "activeContext.md"),
             "/etc/shadow",
             "/usr/bin/bash",
         ]

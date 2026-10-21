@@ -168,8 +168,8 @@ class TestAuditRemediationV2(unittest.TestCase):
             os.path.join(home, ".ssh", "id_ed25519"),
             os.path.join(home, ".secrets", "antigravity.env"),
             os.path.join(home, ".gnupg", "pubring.kbx"),
-            "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/.git/config",
-            "/home/tec/Dropbox/ANTIGRAVITY_PROJECTS/memory-bank/core/activeContext.md",
+            os.path.join(home, "workspace", ".git", "config"),
+            os.path.join(home, "workspace", "memory-bank", "core", "activeContext.md"),
             "/etc/shadow",
             "/usr/bin/python3",
         ]

@@ -1143,6 +1143,11 @@ class TabMcpSkills(QWidget):
                     entry_lines.append("    args:")
                     for a in args:
                         entry_lines.append(f"      - {a}")
+                env = srv.get("env", {})
+                if env:
+                    entry_lines.append("    env:")
+                    for k, v in env.items():
+                        entry_lines.append(f"      {k}: {v}")
                 generated_entries[key] = entry_lines
 
             with open(HERMES_CONFIG, "r", encoding="utf-8") as f:
@@ -1242,40 +1247,44 @@ class TabMcpSkills(QWidget):
             else:
                 parts.append("# Sin MCPs activos\n")
 
-            parts.append(f"""- id: llm-deepseek
-  disabled: true
-
-- id: sandbox-policy
-  config:
-    mode: danger-full-access
-    workspaceRoot: {WORKSPACE_ROOT}
-
-- id: approval
-  config:
-    policy: never
+            # La política de sandbox y la de aprobación NO se propagan desde aquí: pertenecen al
+            # perfil del operador (DSH) y una sincronización de MCPs no puede relajarlas.
+            # Guard: tests/test_audit_remediation.py::test_dsh_sync_does_not_inject_danger_policy
+            parts.append("""
+# La política de sandbox y de aprobaciones se define en el perfil del operador (DSH).
+# Esta sincronización solo propaga servidores MCP: nunca inyecta ni relaja esa politica.
 """)
             content = "\n".join(parts)
             suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             export_path = os.path.join(suite_root, "cache", "mcp_export_dsh_cordis.patch.yml")
             atomic_write_text(export_path, content)
 
-            # Decisión del operador (2026-10-12): propagación automática 1-clic ON.
-            # Se invoca el sincronizador canónico (SSOT: mcp_config.json → cordis.patch.yml).
-            import subprocess
+            # El sincronizador canonico (SSOT: mcp_config.json -> cordis.patch.yml) vive en el
+            # workspace del operador. En un clon limpio del repo publico no existe, asi que el
+            # export atomico actua como patch canonico (degradacion segura, no excepcion).
             sync_script = os.path.join(SCRIPTS_DIR, "sync_dsh_mcps.py")
-            res = subprocess.run(
-                [sys.executable, sync_script],
-                capture_output=True, text=True, timeout=30
-            )
-            if res.returncode != 0:
-                raise RuntimeError(f"sync_dsh_mcps.py falló: {res.stdout}\n{res.stderr}")
+            stdout = ""
+            if os.path.isfile(sync_script):
+                import subprocess
+                res = subprocess.run(
+                    [sys.executable, sync_script],
+                    capture_output=True, text=True, timeout=30
+                )
+                if res.returncode != 0:
+                    raise RuntimeError(f"sync_dsh_mcps.py fallo: {res.stdout}\n{res.stderr}")
+                stdout = res.stdout
+            else:
+                stdout = (
+                    "sync_dsh_mcps.py no disponible (clon limpio del repo): "
+                    "el export atomico se usa como patch canonico."
+                )
 
             if not silent:
                 QMessageBox.information(
                     self,
                     "DSH sincronizado",
                     f"✅ cordis.patch.yml regenerado vía sync_dsh_mcps.py.\n\n"
-                    f"{res.stdout.strip()}\n\nCopia de auditoría: {export_path}"
+                    f"{stdout.strip()}\n\nCopia de auditoría: {export_path}"
                 )
             return True
         except Exception as e:

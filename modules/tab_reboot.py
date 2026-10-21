@@ -3,6 +3,16 @@
 FLOYDIA SUITE 2.0 — Pestaña 1: Control de Infraestructura & Reboot Hub
 Integración granular basada en SCRIPTS/restart_nodes_config.json y restart_workspace_engine.py
 """
+import os as _os
+import sys as _sys
+
+_MODULES_DIR = _os.path.dirname(_os.path.abspath(__file__))
+if _MODULES_DIR not in _sys.path:
+    _sys.path.insert(0, _MODULES_DIR)
+
+from _paths import resolve_env_line  # noqa: E402
+
+_env_line = resolve_env_line()
 
 import os
 import sys
@@ -19,7 +29,8 @@ from PyQt6.QtGui import QFont, QColor, QCursor, QPixmap, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QScrollArea, QFrame, QMessageBox, QProgressBar,
-    QPlainTextEdit, QGridLayout, QSizePolicy, QDialog, QDialogButtonBox
+    QPlainTextEdit, QGridLayout, QSizePolicy, QDialog, QDialogButtonBox,
+    QApplication
 )
 
 from theme import (
@@ -212,7 +223,7 @@ class DefaultRebootEngine:
                         for line in f:
                             s = line.strip()
                             if s and not s.startswith("#") and "=" in s:
-                                p = s.split("=", 1)
+                                p = _env_line(s)
                                 k = p[0].strip()
                                 v = p[1].strip().strip('"').strip("'")
                                 if k not in res:
@@ -843,9 +854,12 @@ class TabReboot(QWidget):
             box = QMessageBox(self)
             box.setWindowTitle("Confirmación de Secuencia de Reinicio — FloydIA Suite")
             
-            # Cargar icono de advertencia nítido desde assets
+            # Cargar icono de advertencia nítido desde assets.
+            # Guard: construir un QPixmap sin QApplication/QGuiApplication provoca
+            # qFatal -> SIGABRT (exit 134) y aborta la sesion de tests. En modo headless
+            # (sin instancia de QApplication) se usa el icono nativo del QMessageBox.
             icon_asset = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
-            if icon_asset.exists():
+            if icon_asset.exists() and QApplication.instance() is not None:
                 pix = QPixmap(str(icon_asset)).scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                 box.setIconPixmap(pix)
             else:

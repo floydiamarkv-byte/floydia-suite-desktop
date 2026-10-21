@@ -5,6 +5,16 @@ Telemetría en vivo, sondas configurables (custom benchmark & prompts),
 dashboard visual KPI, exportador de informes Markdown (.md) y HTML,
 módulo interactivo "Pregúntale a la IA" y sincronización multi-cliente.
 """
+import os as _os
+import sys as _sys
+
+_MODULES_DIR = _os.path.dirname(_os.path.abspath(__file__))
+if _MODULES_DIR not in _sys.path:
+    _sys.path.insert(0, _MODULES_DIR)
+
+from _paths import resolve_env_line  # noqa: E402
+
+_env_line = resolve_env_line()
 
 import os
 import sys
@@ -199,7 +209,7 @@ def load_env_vars() -> Dict[str, str]:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith("#") and "=" in line:
-                            k, v = line.split("=", 1)
+                            k, v = _env_line(line)
                             k = k.strip()
                             v = v.strip().strip("'").strip('"')
                             if " #" in v:
