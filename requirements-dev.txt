@@ -1,3 +1,4 @@
 # Dependencias de desarrollo (tests / CI)
 pytest>=8.0
 pytest-qt>=4.2
+Pillow>=10.0.0
