@@ -52,9 +52,6 @@ def find_workspace_root() -> str:
         if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_all.sh")) or os.path.exists(os.path.join(curr, ".env")):
             return curr
         curr = os.path.dirname(curr)
-    ws_candidate = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS")
-    if os.path.exists(os.path.join(ws_candidate, "SCRIPTS", "sync_models_all.sh")):
-        return ws_candidate
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
@@ -2095,7 +2092,6 @@ class TabApiManager(QWidget):
             try:
                 for candidate in [
                     os.path.join(WORKSPACE_ROOT, "SCRIPTS"),
-                    os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS"),
                     os.path.join(os.path.dirname(os.path.abspath(__file__)), "SCRIPTS"),
                     os.path.dirname(os.path.abspath(__file__))
                 ]:

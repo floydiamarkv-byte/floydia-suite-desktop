@@ -65,7 +65,7 @@ def test_probe_streaming_ttft_local_server():
     assert res.get("tps", 0) > 0, res
 
 
-def test_parity_audit_worker_contract(monkeypatch):
+def test_parity_audit_worker_contract(monkeypatch, tmp_path):
     import modules.tab_radar as tradar
     assert hasattr(tradar, "ParityAuditWorker"), "tab_radar debe definir ParityAuditWorker como QThread/CancellableThread"
 
@@ -75,6 +75,15 @@ def test_parity_audit_worker_contract(monkeypatch):
 
     import subprocess
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: MockProcess())
+    # Hermetico: el worker exige que el script exista. En CI (sin workspace del
+    # operador) el script no existe y el worker emitia False -> el test dependia
+    # de la maquina del desarrollador. Se crea un SCRIPTS/ temporal.
+    scripts = tmp_path / "SCRIPTS"
+    scripts.mkdir()
+    (scripts / "verify_multiagent_parity.py").write_text("# stub\n", encoding="utf-8")
+    monkeypatch.setattr(tradar, "WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setattr(tradar, "scripts_dir", lambda: str(scripts))
+
     worker = tradar.ParityAuditWorker()
     emitted = []
     worker.audit_finished.connect(lambda ok, out: emitted.append((ok, out)))
@@ -82,3 +91,21 @@ def test_parity_audit_worker_contract(monkeypatch):
     assert len(emitted) == 1
     assert emitted[0][0] is True
     assert "CERTIFICADO 100% PARITARIO" in emitted[0][1]
+
+
+def test_parity_audit_worker_reports_missing_script(monkeypatch, tmp_path):
+    """Contrato negativo: sin script, el worker emite (False, motivo) y no revienta."""
+    import modules.tab_radar as tradar
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(tradar, "WORKSPACE_ROOT", str(empty))
+    monkeypatch.setattr(tradar, "scripts_dir", lambda: str(empty / "SCRIPTS"))
+
+    worker = tradar.ParityAuditWorker()
+    emitted = []
+    worker.audit_finished.connect(lambda ok, out: emitted.append((ok, out)))
+    worker.run()
+    assert len(emitted) == 1
+    assert emitted[0][0] is False
+    assert "no encontrado" in emitted[0][1].lower()

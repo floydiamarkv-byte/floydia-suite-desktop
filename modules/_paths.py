@@ -37,6 +37,29 @@ def candidate_scripts_dirs():
         cur = os.path.dirname(cur)
 
 
+def find_workspace_root():
+    """Raiz del workspace del operador.
+
+    Orden: $FLOYDIA_WORKSPACE -> upward search (SCRIPTS/ o .env) -> raiz del repo.
+    Nunca devuelve una ruta absoluta de un usuario concreto.
+    """
+    env_ws = os.environ.get(WORKSPACE_ENV_VAR, "").strip()
+    if env_ws and os.path.isdir(env_ws):
+        return env_ws
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cur = repo_root
+    while cur and cur != os.path.dirname(cur):
+        if os.path.isdir(os.path.join(cur, SCRIPTS_DIRNAME)) or os.path.exists(os.path.join(cur, ".env")):
+            return cur
+        cur = os.path.dirname(cur)
+    return repo_root
+
+
+def scripts_dir():
+    """Directorio SCRIPTS resuelto (o '' si el workspace no tiene SCRIPTS/)."""
+    return os.path.join(find_workspace_root(), SCRIPTS_DIRNAME)
+
+
 def ensure_scripts_on_path():
     """Inserta el primer SCRIPTS existente en sys.path. Devuelve la ruta o ''."""
     for d in candidate_scripts_dirs():

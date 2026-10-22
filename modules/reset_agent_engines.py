@@ -25,6 +25,21 @@ import argparse
 from datetime import datetime
 from typing import Dict, List, Any, Tuple
 
+import os as _os
+import sys as _sys
+
+_MODULES_DIR = _os.path.dirname(_os.path.abspath(__file__))
+if _MODULES_DIR not in _sys.path:
+    _sys.path.insert(0, _MODULES_DIR)
+
+from _paths import find_workspace_root, scripts_dir  # noqa: E402
+
+#: Raiz del workspace del operador (FLOYDIA_WORKSPACE + upward search).
+WORKSPACE_ROOT = find_workspace_root()
+#: Raiz de la suite (este repositorio).
+SUITE_ROOT = _os.path.dirname(_MODULES_DIR)
+
+
 def get_timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -86,7 +101,7 @@ def reset_opencode() -> Tuple[bool, str]:
         f.write("\n")
 
     # También limpiar workspace .opencode si existe
-    ws_opencode = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/.opencode/opencode.json")
+    ws_opencode = os.path.join(WORKSPACE_ROOT, ".opencode", "opencode.json")
     if os.path.exists(ws_opencode):
         backup_file(ws_opencode)
         ws_data = load_json_or_jsonc(ws_opencode)
@@ -140,7 +155,7 @@ runtime:
 
 def reset_dsh() -> Tuple[bool, str]:
     """Restablece DeepSeek Harness (DSH) eliminando proveedores inyectados en llm-pi-ai."""
-    target = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS/dsh-settings.yaml")
+    target = os.path.join(scripts_dir(), "dsh-settings.yaml")
     bak = ""
     if os.path.exists(target):
         bak = backup_file(target)
@@ -218,7 +233,7 @@ def reset_antigravity() -> Tuple[bool, str]:
 
 def reset_floydia_cache() -> Tuple[bool, str]:
     """Restablece la caché local de APIs registradas en FloydIA Suite."""
-    cache_path = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/FLOYDIA/SUBTOOLS/FLOYDIA_SUITE_2.0/cache/custom_apis.json")
+    cache_path = os.path.join(SUITE_ROOT, "cache", "custom_apis.json")
     bak = ""
     if os.path.exists(cache_path):
         bak = backup_file(cache_path)

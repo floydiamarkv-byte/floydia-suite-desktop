@@ -61,7 +61,7 @@ jobs:
 
       - name: "Guard: sin rutas absolutas de usuario (codigo de produccion)"
         run: |
-          if git grep -nE '/home/[A-Za-z0-9_.-]+/' -- modules/ theme.py floydia_suite_app.py; then
+          if git grep -nE '/home/[A-Za-z0-9_.-]+/|Dropbox/ANTIGRAVITY_PROJECTS' -- modules/ theme.py floydia_suite_app.py; then
             echo "::error::Rutas absolutas de usuario en código de producción. Usa modules/_paths.py (FLOYDIA_WORKSPACE + upward search)."
             exit 1
           fi

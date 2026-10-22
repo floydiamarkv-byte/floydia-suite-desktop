@@ -12,7 +12,7 @@ _MODULES_DIR = _os.path.dirname(_os.path.abspath(__file__))
 if _MODULES_DIR not in _sys.path:
     _sys.path.insert(0, _MODULES_DIR)
 
-from _paths import resolve_env_line  # noqa: E402
+from _paths import resolve_env_line, scripts_dir  # noqa: E402
 
 _env_line = resolve_env_line()
 
@@ -74,9 +74,6 @@ def find_workspace_root() -> str:
         if os.path.exists(os.path.join(curr, "SCRIPTS", "sync_models_all.sh")) or os.path.exists(os.path.join(curr, ".env")):
             return curr
         curr = os.path.dirname(curr)
-    ws_candidate = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS")
-    if os.path.exists(os.path.join(ws_candidate, "SCRIPTS", "sync_models_all.sh")):
-        return ws_candidate
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WORKSPACE_ROOT = os.environ.get("FLOYDIA_WORKSPACE", find_workspace_root())
@@ -1617,7 +1614,9 @@ class ParityAuditWorker(CancellableThread):
     def run(self):
         script_path = os.path.join(WORKSPACE_ROOT, "SCRIPTS", "verify_multiagent_parity.py")
         if not os.path.exists(script_path):
-            candidate = os.path.expanduser("~/Dropbox/ANTIGRAVITY_PROJECTS/SCRIPTS/verify_multiagent_parity.py")
+            # Fallback portable: el directorio SCRIPTS resuelto por modules/_paths.py
+            # (FLOYDIA_WORKSPACE + upward search). Sin rutas de usuario hardcodeadas.
+            candidate = os.path.join(scripts_dir(), "verify_multiagent_parity.py")
             if os.path.exists(candidate):
                 script_path = candidate
 
